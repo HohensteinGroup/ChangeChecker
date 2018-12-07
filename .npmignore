@@ -1,0 +1,10 @@
+*.tgz
+tsconfig.json
+tslint.json
+yarn.lock
+
+.vscode/
+node_modules/
+src/
+build/
+temp/
