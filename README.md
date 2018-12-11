@@ -7,9 +7,9 @@ A typescript utility for creating generic deep typed diffs to track changes betw
 
 ## Installation 
 ```sh
-npm install change-checker --save
+npm install change-checker
 yarn add change-checker
-bower install change-checker --save
+bower install change-checker
 ```
 ## Load
 
@@ -54,8 +54,8 @@ If you want to know wether anything has changed you can do a deep dirty check at
 diff.$isDirty(); // has anything changed?
 diff.property.$isDirty() // has anything changed below a specific property?
 ```
-#### Get more detailed information about CRUD operations done to your model
-If you want to know if an array or object was created, changed or deleted use $isCreate, $isChanged, $isDeleted.
+#### Get more detailed information about C~~R~~UD operations done to your model
+If you want to know if an array or object was created, changed or deleted use $isCreated, $isChanged, $isDeleted.
 ```ts
 diff.$isChanged; // if true, the object has a new property, got some deleted or any value or reference to another object has changed
 ```
@@ -63,9 +63,21 @@ The former and present value of properties are available through $formerValue an
 ```ts
 diff.property.$value; // present value of the property
 if(diff.property.$isChanged){
-  const formerValue = diff.property.$formervalue // the former value of the properyt (if changed)
+  const formerValue = diff.property.$formerValue // the former value of the properyt (if changed)
 }
 ```
+If the property is a value type (number, string etc.) or a "value like" (look below for "Plugin") $value and $formerValue remain of this type.
+```ts
+const value: string = diff.stringProperty.$value;
+const decimal: Decimal = diff.decimalProperty.$value;
+```
+Otherwise both ($value and $formerValue) are also diffs.
+```ts
+const addressDiff: ObjectDiff<{  street: string; }> = diff.address.$value; // model: {  street: string; }
+const isAddressChanged = addressDiff.$isChanged;
+```
+
+
 If you want to operate on deleted or inserted entries of the array the properties $deleted and $inserted provide this information.
 ```ts
 diff.array.$value.$inserted;
@@ -91,11 +103,11 @@ interface IAddress {
 const model!: ICompany;
 
 const changeChecker = new ChangeChecker();
-const snapshot = changeChecker.takeSnapshot(model2);
+const snapshot = changeChecker.takeSnapshot(model);
 
 // mutate model
 
-const diff = changeChecker.createDiff(snapshot, model2);
+const diff = changeChecker.createDiff(snapshot, model);
 
 if (diff.$isDirty()) {
   if (diff.name.$isChanged) {

@@ -1,5 +1,5 @@
 {
-  "name": "@hohenstein/change-checker",
+  "name": "change-checker",
   "version": "1.0.0",
   "description": "Utility for creating generic deep typed diffs to track changes between lifecycles of objects.",
   "keywords": ["change", "tracking", "checker", "diff", "difference", "deep", "type", "typed", "dirty", "changed", "deleted", "touched", "created", "create", "change", "delete", "tracker", "typescript"],
@@ -14,7 +14,7 @@
     "postinstall": "code -r CHANGELOG.md"
   },
   "repository": "https://github.com/HohensteinGroup/ChangeChecker.git",
-  "author": "Hohenstein",
+  "author": "Maxim Brunnmeier <m.brunnmeier@hohenstein.de>",
   "license": "MIT",
   "private": false,
   "devDependencies": {

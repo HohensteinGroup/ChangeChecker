@@ -5,15 +5,15 @@ export const objectIdSymbol: unique symbol = Symbol.for("objectId");
 export class ChangeChecker {
     private currentObjectId: number = 0;
     private referenceLikesPlugins: Array<IReferenceLikePlugin<any>> = [];
-    private valueLikeplugins: Array<IValueLikePlugin<any>> = [];
+    private valueLikePlugins: Array<IValueLikePlugin<any>> = [];
 
     public withPlugin<T>(plugin: IReferenceLikePlugin<T> | IValueLikePlugin<T>): ChangeChecker {
-        if (this.referenceLikesPlugins.some((x) => x.name === plugin.name) || this.valueLikeplugins.some((x) => x.name === plugin.name)) {
+        if (this.referenceLikesPlugins.some((x) => x.name === plugin.name) || this.valueLikePlugins.some((x) => x.name === plugin.name)) {
             throw new Error("Plugin already registered.");
         }
 
         if (plugin.isValueLikePlugin) {
-            this.valueLikeplugins.push(plugin);
+            this.valueLikePlugins.push(plugin);
         }
         else {
             this.referenceLikesPlugins.push(plugin);
@@ -195,7 +195,7 @@ export class ChangeChecker {
             // now we sum the number of occurrences of all "value likes"
             const valueLikes = Array.from(resultMap.entries());
             for (let outerIndex = 0; outerIndex < valueLikes.length; outerIndex++) {
-                const plugin = this.valueLikeplugins.find((x) => x.isMatch(valueLikes[outerIndex][0]))!;
+                const plugin = this.valueLikePlugins.find((x) => x.isMatch(valueLikes[outerIndex][0]))!;
 
                 for (let innerIndex = outerIndex + 1; innerIndex < valueLikes.length;) {
                     if (plugin.isMatch(valueLikes[innerIndex][0]) && plugin.equals(valueLikes[outerIndex][0], valueLikes[innerIndex][0])) {
@@ -394,7 +394,7 @@ export class ChangeChecker {
             return null;
         }
 
-        const valueLikePlugin = this.valueLikeplugins.find((x) => x.isMatch(obj));
+        const valueLikePlugin = this.valueLikePlugins.find((x) => x.isMatch(obj));
         if (valueLikePlugin) {
             return valueLikePlugin.clone!({ clone: <T>(x: T) => this.clone(x, referenceMap) }, obj);
         }
@@ -504,7 +504,7 @@ export class ChangeChecker {
     }
 
     private isSameValueLike(left: any, right: any): boolean {
-        for (const plugin of this.valueLikeplugins) {
+        for (const plugin of this.valueLikePlugins) {
             if (plugin.isMatch(left)) {
                 if (!(plugin.isMatch(right))) {
                     return false;
@@ -527,7 +527,7 @@ export class ChangeChecker {
             return lookup.get(valueOrReference)!.diff;
         }
 
-        const plugin = this.valueLikeplugins.find((x) => x.isMatch(valueOrReference));
+        const plugin = this.valueLikePlugins.find((x) => x.isMatch(valueOrReference));
         if (plugin) {
             // because some "value likes" (like Date) can be changed by methods (e.g. setDate) we need to copy here
             return plugin.clone!({ clone: <T>(x: T) => this.clone(x, new Map()) }, valueOrReference);
@@ -738,7 +738,7 @@ export class ChangeChecker {
     }
 
     private isValueLike(node: any): node is ValueLike {
-        return node instanceof Object && this.valueLikeplugins.some((x) => x.isMatch(node));
+        return node instanceof Object && this.valueLikePlugins.some((x) => x.isMatch(node));
     }
 
     private isReference(node: any): node is { [objectIdSymbol]: string; } {
