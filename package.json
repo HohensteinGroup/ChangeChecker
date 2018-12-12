@@ -32,7 +32,6 @@
     "tslint": "tslint -c tslint.json -t verbose --force 'src/**/*.ts'",
     "tslint-fix": "tslint -c tslint.json -t verbose --force 'src/**/*.ts' --fix",
     "build": "yarn run clean && node ./node_modules/typescript/bin/tsc --project tsconfig.es5.json && node ./node_modules/typescript/bin/tsc --project tsconfig.es6.json && webpack --config build/webpack.config.js",
-    "publish": "npm publish --access public",
     "postinstall": "code -r CHANGELOG.md"
   },
   "repository": "https://github.com/HohensteinGroup/ChangeChecker.git",
