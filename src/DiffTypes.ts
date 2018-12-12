@@ -1,3 +1,5 @@
+import { IValueLikeRegistry } from "./ValueLikeRegistry";
+
 export interface IUnchangedProperty<T> {
     readonly $value: T extends ValueTypeOrValueLike ? T
     : T extends Array<infer U> ? IArrayDiff<U>
@@ -49,7 +51,7 @@ export type ObjectDiff<T> = {
 } & PropertiesDiffed<T>;
 
 export type PropertiesDiffed<T> = {
-    readonly [K in keyof Pick<T, PropertyKeysOf<T>>]: K extends "objectId" ? T[K] : PropertyDiff<T[K]>;
+    readonly [K in keyof Pick<T, PropertyKeysOf<T>>]: PropertyDiff<T[K]>;
 };
 
 export type PropertyDiff<T> = IUnchangedProperty<T> | IChangedProperty<T>;
@@ -72,6 +74,3 @@ export enum Era {
 export type ValueTypeOrValueLike = ValueLike | ValueType;
 export type ValueType = string | number | boolean | null | undefined;
 export type ValueLike = IValueLikeRegistry[keyof IValueLikeRegistry];
-
-// tslint:disable-next-line:no-empty-interface => used by plugins
-export interface IValueLikeRegistry { }

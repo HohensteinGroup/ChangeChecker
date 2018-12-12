@@ -1,4 +1,4 @@
-import { ObjectDiff, IArrayDiff, IChangedProperty, IUnchangedProperty, ValueLike, ValueType, Era, PropertyDiff, State } from "./types";
+import { ObjectDiff, IArrayDiff, IChangedProperty, IUnchangedProperty, ValueLike, ValueType, Era, PropertyDiff, State } from "./DiffTypes";
 
 export const objectIdSymbol: unique symbol = Symbol.for("objectId");
 

@@ -4,6 +4,7 @@
 deployment/
 artifacts/
 dist/
+types/
 **/node_modules/
 **/bower_components/
 **/bin/
