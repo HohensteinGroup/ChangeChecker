@@ -135,7 +135,7 @@ To solve this issue it is possible to create 'value like' plugins. They must pro
 ### Example
 ```ts
 import Decimal from "decimal.js";
-import { IValueLikePlugin, ICloneContext } from "./ChangeChecker";
+import { IValueLikePlugin, ICloneContext } from "change-checker";
 
 export class DecimalPlugin implements IValueLikePlugin<Decimal> {
     public name: string = "DecimalPlugin";
@@ -155,7 +155,7 @@ export class DecimalPlugin implements IValueLikePlugin<Decimal> {
     }
 }
 
-declare module "./types" {
+declare module "change-checker/types/ValueLikeRegistry" {
     export interface IValueLikeRegistry {
         decimal: Decimal;
     }
