@@ -5,6 +5,10 @@ A typescript utility for creating generic deep typed diffs to track changes betw
 - typed
 - extensible
 
+### Try it online  
+   _Switch to VSCode mode (Preferences -> Experiments -> Use VSCode in the browser)_   
+[![Edit change-checker example using Vue](https://codesandbox.io/static/img/play-codesandbox.svg)](https://codesandbox.io/s/7yrw0ljpzq)
+
 ## Installation 
 ```sh
 npm install change-checker
