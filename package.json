@@ -32,6 +32,7 @@
     "tslint": "tslint -c tslint.json -t verbose --force 'src/**/*.ts'",
     "tslint-fix": "tslint -c tslint.json -t verbose --force 'src/**/*.ts' --fix",
     "build": "yarn run clean && node ./node_modules/typescript/bin/tsc --project tsconfig.es5.json && node ./node_modules/typescript/bin/tsc --project tsconfig.es6.json && webpack --config build/webpack.config.js",
+    "test": "mocha -r ts-node/register test/**/*.spec.ts",
     "postinstall": "code -r CHANGELOG.md"
   },
   "repository": "https://github.com/HohensteinGroup/ChangeChecker.git",
@@ -48,6 +49,11 @@
     "webpack-cli": "~3.1.2",
     "webpack-merge": "~4.1.4",
     "webpack-node-externals": "~1.7.2",
-    "whatwg-fetch": "~3.0.0"
+    "whatwg-fetch": "~3.0.0",
+    "@types/chai": "^4.1.7",
+    "@types/mocha": "^5.2.5",
+    "chai": "^4.2.0",
+    "mocha": "^5.2.0",
+    "ts-node": "^8.0.2"
   }
 }

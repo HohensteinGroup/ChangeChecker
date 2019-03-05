@@ -1,8 +1,9 @@
 # folders
 .vs/
 .vscode/
+.nyc_output/
 deployment/
-artifacts/
+coverage/
 dist/
 types/
 **/node_modules/
