@@ -9,7 +9,7 @@ export class ChangeChecker {
 
     public withPlugin<T>(plugin: IReferenceLikePlugin<T> | IValueLikePlugin<T>): ChangeChecker {
         if (this.referenceLikesPlugins.some((x) => x.name === plugin.name) || this.valueLikePlugins.some((x) => x.name === plugin.name)) {
-            throw new Error("Plugin already registered.");
+            throw new Error(`Plugin with name ${plugin.name} is already registered.`);
         }
 
         if (plugin.isValueLikePlugin) {
@@ -27,7 +27,6 @@ export class ChangeChecker {
             throw new Error("The model must be an object.");
         }
 
-        // this is kind of unexpected behavior, but objectId itself is an implementation detail and the model has to be at par with the latest snapshot always
         this.assignObjectIds(model, new Set());
         return this.clone(model, new Map()) as T;
     }
@@ -132,21 +131,21 @@ export class ChangeChecker {
         }
 
         if (lookupEntry.presentObject == undefined) {
-            // if the array is deleted we dont now what happend before therefore its unchanged
+            // if the array is deleted therefore its unchanged
             for (const item of lookupEntry.formerObject) {
                 lookupEntry.diff.$other.push(this.resolveValueOrDiff(item, objectLookup));
             }
         }
 
         if (lookupEntry.formerObject == undefined) {
-            // if the array is created we dont now what happend before therefore its unchanged
+            // if the array is created therefore its unchanged
             for (const item of lookupEntry.presentObject) {
                 lookupEntry.diff.$other.push(this.resolveValueOrDiff(item, objectLookup));
             }
         }
 
         if (lookupEntry.formerObject && lookupEntry.presentObject) {
-            // this map holds all possible results as key. The inner arrays 1st index holds the number of occurrences of the former array and the 2nd index holds the number of occurrences of the present array.
+            // this map holds all possible results as key. The inner arrays 1st index holds the occurrences of the former array and the 2nd index holds the occurrences of the present array.
             const resultMap: Map<any, [any[], any[]]> = new Map();
             for (const item of lookupEntry.presentObject) {
                 const arrayDiffEntry = this.resolveValueOrDiff(item, objectLookup);
@@ -168,10 +167,11 @@ export class ChangeChecker {
                 }
             }
 
-            // now we know all number of occurrences and simply push the result (the key) n times in the corresponding array diff slot.
+            // now we know all past and present number of occurrences.
+
             for (const entry of resultMap) {
                 if (this.isValueLike(entry[0])) {
-                    // because maps and sets can not recognize "value likes" equality we have to skip them for now.
+                    // because maps and sets can not recognize "value likes" equality (new Date(1993, 3) != new Date(1993, 3) == true) we have to skip them for now.
                     continue;
                 }
 
@@ -182,7 +182,9 @@ export class ChangeChecker {
                 const inserted = presentOccurrences.splice(0, presentOccurrences.length - formerOccurrences.length);
                 const other = inserted.length > 0 ? presentOccurrences : formerOccurrences;
 
-                // tslint:disable:curly => modern browsers should compile this to very efficient assembly
+                // now we know what happend to the elements and push the results to the diff
+
+                // tslint:disable:curly
                 for (let i = 0; i < deleted.length; lookupEntry.diff.$deleted.push(deleted[i++])) continue;
                 for (let i = 0; i < inserted.length; lookupEntry.diff.$inserted.push(inserted[i++])) continue;
                 for (let i = 0; i < other.length; lookupEntry.diff.$other.push(other[i++])) continue;
@@ -192,18 +194,25 @@ export class ChangeChecker {
                 resultMap.delete(entry[0]);
             }
 
-            // now we sum the number of occurrences of all "value likes"
+            // now we sum the number of occurrences of all "value likes".
             const valueLikes = Array.from(resultMap.entries());
             for (let outerIndex = 0; outerIndex < valueLikes.length; outerIndex++) {
+
+                // find the plugin
                 const plugin = this.valueLikePlugins.find((x) => x.isMatch(valueLikes[outerIndex][0]))!;
 
                 for (let innerIndex = outerIndex + 1; innerIndex < valueLikes.length;) {
+
+                    // find all matching value likes
                     if (plugin.isMatch(valueLikes[innerIndex][0]) && plugin.equals(valueLikes[outerIndex][0], valueLikes[innerIndex][0])) {
+
+                        // push all matching to the smallest index
                         // tslint:disable:curly => modern browsers should compile this to very efficient assembly
                         for (let i = 0; i < valueLikes[innerIndex][1][0].length; valueLikes[outerIndex][1][0].push(valueLikes[innerIndex][1][0][i++])) continue;
                         for (let i = 0; i < valueLikes[innerIndex][1][1].length; valueLikes[outerIndex][1][1].push(valueLikes[innerIndex][1][1][i++])) continue;
                         // tslint:enable:curly
 
+                        // delete the entry
                         valueLikes.splice(innerIndex, 1);
                     } else {
                         innerIndex++;
@@ -211,7 +220,7 @@ export class ChangeChecker {
                 }
             }
 
-            // as before we know all number of occurrences and simply push the result (the first element) n times in the corresponding array diff slot.
+            // as before we know all past and present number of occurrences.
             for (const item of valueLikes) {
                 const formerOccurrences = item[1][0];
                 const presentOccurrences = item[1][1];
@@ -220,7 +229,9 @@ export class ChangeChecker {
                 const inserted = presentOccurrences.splice(0, presentOccurrences.length - formerOccurrences.length);
                 const other = inserted.length > 0 ? presentOccurrences : formerOccurrences;
 
-                // tslint:disable:curly => modern browsers should compile this to very efficient assembly
+                // now we know what happend to the elements and push the results to the diff
+
+                // tslint:disable:curly
                 for (let i = 0; i < deleted.length; lookupEntry.diff.$deleted.push(deleted[i++])) continue;
                 for (let i = 0; i < inserted.length; lookupEntry.diff.$inserted.push(inserted[i++])) continue;
                 for (let i = 0; i < other.length; lookupEntry.diff.$other.push(other[i++])) continue;
@@ -381,39 +392,43 @@ export class ChangeChecker {
         }
     }
 
-    private clone(obj: any, referenceMap: Map<any, any>): any {
-        if (referenceMap.has(obj)) {
-            return referenceMap.get(obj);
+    private clone(any: any, referenceMap: Map<any, any>): any {
+        if (referenceMap.has(any)) {
+            return referenceMap.get(any);
         }
 
-        if (obj == undefined) {
-            return obj;
+        if (any == undefined) {
+            return any;
         }
 
-        if (obj instanceof Function) {
-            return null;
+        if (this.isValueType(any)) {
+            return any;
         }
 
-        const valueLikePlugin = this.valueLikePlugins.find((x) => x.isMatch(obj));
-        if (valueLikePlugin) {
-            return valueLikePlugin.clone!({ clone: <T>(x: T) => this.clone(x, referenceMap) }, obj);
+        if (any instanceof Function) {
+            return;
+        }
+
+        let plugin: IValueLikePlugin<any> | IReferenceLikePlugin<any> | undefined = this.valueLikePlugins.find((x) => x.isMatch(any));
+        if (plugin) {
+            return plugin.clone({ clone: <T>(x: T) => this.clone(x, referenceMap) }, any);
         }
 
         let result: any;
 
-        const referenceLikePlugin = this.referenceLikesPlugins.find((x) => x.clone != undefined && x.isMatch(obj));
-        if (referenceLikePlugin) {
-            result = referenceLikePlugin.clone!({ clone: <T>(x: T) => this.clone(x, referenceMap) }, obj);
-            referenceMap.set(obj, result);
+        plugin = this.referenceLikesPlugins.find((x) => x.clone != undefined && x.isMatch(any));
+        if (plugin) {
+            result = plugin.clone!({ clone: <T>(x: T) => this.clone(x, referenceMap) }, any);
+            referenceMap.set(any, result);
         }
-        else if (Array.isArray(obj)) {
-            result = this.cloneArray(obj, referenceMap);
+        else if (Array.isArray(any)) {
+            result = this.cloneArray(any, referenceMap);
         }
         else {
-            result = this.cloneObject(obj, referenceMap);
+            result = this.cloneObject(any, referenceMap);
         }
 
-        setObjectIdRaw(result, obj[objectIdSymbol]);
+        setObjectIdRaw(result, any[objectIdSymbol]);
         return result;
     }
 
@@ -421,9 +436,18 @@ export class ChangeChecker {
         const clone: any[] = [];
         referenceMap.set(source, clone);
 
-        clone.push(...source.map((x) => x instanceof Object
-            ? this.clone(x, referenceMap)
-            : x));
+        for (const item of source) {
+            if (item instanceof Object) {
+                if (item instanceof Function) {
+                    continue;
+                }
+
+                clone.push(this.clone(item, referenceMap));
+            }
+            else {
+                clone.push(item);
+            }
+        }
 
         return clone;
     }
@@ -433,27 +457,28 @@ export class ChangeChecker {
         referenceMap.set(source, clone);
 
         for (const propertyInfo of this.getPropertyInfos(source).values()) {
-            this.cloneProperty(source, clone, propertyInfo, referenceMap);
+            const property = source[propertyInfo.name];
+
+            let value: any;
+            if (property instanceof Object) {
+                if (property instanceof Function) {
+                    continue;
+                }
+
+                value = this.clone(property, referenceMap);
+            }
+            else {
+                value = property;
+            }
+
+            Object.defineProperty(clone, propertyInfo.name, {
+                enumerable: propertyInfo.enumerable,
+                writable: propertyInfo.writable,
+                configurable: propertyInfo.configurable,
+                value
+            });
         }
         return clone;
-    }
-
-    private cloneProperty(source: any, target: any, propertyInfo: IPropertyInfo, referenceMap: Map<any, any>): void {
-        const property = source[propertyInfo.name];
-        if (property instanceof Function) {
-            return;
-        }
-
-        const value = property instanceof Object
-            ? this.clone(property, referenceMap)
-            : property;
-
-        Object.defineProperty(target, propertyInfo.name, {
-            enumerable: propertyInfo.enumerable,
-            writable: propertyInfo.writable,
-            configurable: propertyInfo.configurable,
-            value
-        });
     }
 
     private assignObjectIds(obj: any, referenceSet: Set<any>): void {
@@ -827,14 +852,14 @@ class PropertyDiffImpl {
 
     constructor(
         $isChanged: boolean,
-        isDirty: (diff: any, referenceSet: Set<any>) => boolean,
+        isDirty: (diff: any) => boolean,
         unwrap: (era: Era, diff: any, referenceMap: Map<any, any>) => any,
         $value: any,
         $formerValue?: any) {
         this.$isChanged = $isChanged;
         this.$value = $value;
         this.$formerValue = $formerValue;
-        this.$isDirty = () => isDirty(this, new Set());
+        this.$isDirty = () => isDirty(this);
         this.$unwrap = (era: Era) => unwrap(era, this, new Map());
     }
 }
@@ -850,7 +875,7 @@ class ObjectDiffImpl {
     private [internalIsCreatedSymbol]: boolean;
     private [internalIsDeletedSymbol]: boolean;
     private [internalIsChangedSymbol]: boolean;
-    private [internalIsDirtySymbol]: (diff: any, referenceSet: Set<any>) => boolean;
+    private [internalIsDirtySymbol]: (diff: any) => boolean;
     private [internalUnwrapSymbol]: (era: Era, diff: any, referenceMap: Map<any, any>) => any;
 
     // tslint:disable-next-line: variable-name => we carry a private ref to parent change checker for performance reasons
@@ -884,7 +909,7 @@ class ObjectDiffImpl {
     }
 
     public $isDirty(): boolean {
-        return this[internalIsDirtySymbol](this, new Set());
+        return this[internalIsDirtySymbol](this);
     }
 
     public $unwrap(era: Era = Era.Present): boolean {
