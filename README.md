@@ -171,3 +171,7 @@ declare module "change-checker/types/ValueLikeRegistry" {
 - clone
 - yarn
 - yarn build
+
+## Test
+- yarn test
+- npm test
