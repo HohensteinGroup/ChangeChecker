@@ -104,7 +104,7 @@ export class ChangeChecker {
                 const $value = this.resolveValueOrDiff(presentValueOrReference, objectLookup);
                 const $formerValue = this.resolveValueOrDiff(formerValueOrReference, objectLookup);
                 const isSameValue = $formerValue === $value;
-                const isSameReference = !isSameValue && this.isReference($formerValue) && this.isReference($formerValue) && $formerValue[objectIdSymbol] === $value[objectIdSymbol];
+                const isSameReference = !isSameValue && this.isReference($formerValue) && this.isReference($value) && $formerValue[objectIdSymbol] === $value[objectIdSymbol];
                 const isSameValueLike = !isSameValue && !isSameReference && this.isSameValueLike($formerValue, $value);
 
                 if (isSameValue || isSameReference || isSameValueLike) {
