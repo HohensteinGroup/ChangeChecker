@@ -131,14 +131,12 @@ export class ChangeChecker {
         }
 
         if (lookupEntry.presentObject == undefined) {
-            // if the array is deleted therefore its unchanged
             for (const item of lookupEntry.formerObject) {
                 lookupEntry.diff.$other.push(this.resolveValueOrDiff(item, objectLookup));
             }
         }
 
         if (lookupEntry.formerObject == undefined) {
-            // if the array is created therefore its unchanged
             for (const item of lookupEntry.presentObject) {
                 lookupEntry.diff.$other.push(this.resolveValueOrDiff(item, objectLookup));
             }
