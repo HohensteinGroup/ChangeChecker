@@ -280,7 +280,7 @@ describe("ChangeChecker", () => {
       name: "DatePlugin"
     };
 
-    changeChecker.addPlugin(datePlugin);
+    changeChecker.withPlugin(datePlugin);
 
     describe(`with plain js object`, () => {
       const plainJsObject = {
