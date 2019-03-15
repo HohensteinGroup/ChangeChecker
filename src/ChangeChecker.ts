@@ -45,21 +45,21 @@ export class ChangeChecker {
     private unwrapArrow = (era: Era, diff: any) => era === Era.Present ? this.unwrapPresentInternal(diff, new Map()) : this.unwrapFormerInternal(diff, new Map());
 
     private createDiffInternal(formerObject: any, presentObject: any): any {
-        const objectLookup = new Map();
+        const objectLookup: Map<any, IObjectLookupEntry> = new Map();
         this.fillObjectLookupFormer(formerObject, objectLookup, new Set());
         this.fillObjectLookupPresent(presentObject, objectLookup, new Set());
 
         for (const entry of objectLookup.values()) {
             let result: ArrayDiffImpl | ObjectDiffImpl;
             if (Array.isArray(entry.formerObject || entry.presentObject)) {
-                const $isCreated = entry.formerObject == undefined;
-                const $isDeleted = entry.presentObject == undefined;
+                const $isCreated = entry.formerObject === null;
+                const $isDeleted = entry.presentObject === null;
 
                 result = new ArrayDiffImpl($isCreated, $isDeleted, false, this.isDirtyArrow, this.unwrapArrow);
             }
             else {
-                const $isCreated = entry.formerObject == undefined;
-                const $isDeleted = entry.presentObject == undefined;
+                const $isCreated = entry.formerObject === null;
+                const $isDeleted = entry.presentObject === null;
 
                 result = new ObjectDiffImpl($isCreated, $isDeleted, false, this.isDirtyArrow, this.unwrapArrow);
             }
@@ -67,12 +67,12 @@ export class ChangeChecker {
             entry.diff = result;
         }
 
-        for (const entry of objectLookup.entries()) {
-            if (Array.isArray(entry[1].formerObject || entry[1].presentObject)) {
-                this.bindArrayDiff(objectLookup, entry[1]);
+        for (const entry of objectLookup.values()) {
+            if (Array.isArray(entry.formerObject || entry.presentObject)) {
+                this.bindArrayDiff(objectLookup, entry);
             }
             else {
-                this.bindObjectDiff(objectLookup, entry[1]);
+                this.bindObjectDiff(objectLookup, entry);
             }
         }
 
@@ -87,34 +87,11 @@ export class ChangeChecker {
         for (const propertyInfo of lookupEntry.propertyInfos.values()) {
             const formerValueOrReference = lookupEntry.formerObject ? lookupEntry.formerObject[propertyInfo.name] : undefined;
             const presentValueOrReference = lookupEntry.presentObject ? lookupEntry.presentObject[propertyInfo.name] : undefined;
-            if (formerValueOrReference instanceof Function || presentValueOrReference instanceof Function) {
+            if (typeof formerValueOrReference === "function" || typeof presentValueOrReference === "function") {
                 continue;
             }
 
-            let propertyDiff: PropertyDiffImpl;
-            if (lookupEntry.presentObject == undefined) {
-                const $formerValue = this.resolveValueOrDiff(formerValueOrReference, objectLookup);
-                propertyDiff = new PropertyDiffImpl(false, this.isDirtyArrow, this.unwrapArrow, $formerValue);
-            }
-            else if (lookupEntry.formerObject == undefined) {
-                const $value = this.resolveValueOrDiff(presentValueOrReference, objectLookup);
-                propertyDiff = new PropertyDiffImpl(false, this.isDirtyArrow, this.unwrapArrow, $value);
-            }
-            else {
-                const $value = this.resolveValueOrDiff(presentValueOrReference, objectLookup);
-                const $formerValue = this.resolveValueOrDiff(formerValueOrReference, objectLookup);
-                const isSameValue = $formerValue === $value;
-                const isSameReference = !isSameValue && this.isReference($formerValue) && this.isReference($value) && $formerValue[objectIdSymbol] === $value[objectIdSymbol];
-                const isSameValueLike = !isSameValue && !isSameReference && this.isSameValueLike($formerValue, $value);
-
-                if (isSameValue || isSameReference || isSameValueLike) {
-                    propertyDiff = new PropertyDiffImpl(false, this.isDirtyArrow, this.unwrapArrow, $value);
-                }
-                else {
-                    propertyDiff = new PropertyDiffImpl(true, this.isDirtyArrow, this.unwrapArrow, $value, $formerValue);
-                    lookupEntry.diff.$isChanged = true;
-                }
-            }
+            const propertyDiff: PropertyDiffImpl = this.createPropertyDiff(lookupEntry, formerValueOrReference, objectLookup, presentValueOrReference);
 
             Object.defineProperty(lookupEntry.diff, propertyInfo.name, {
                 writable: propertyInfo.writable,
@@ -125,19 +102,49 @@ export class ChangeChecker {
         }
     }
 
+    private createPropertyDiff(lookupEntry: IObjectLookupEntry, formerValueOrReference: any, objectLookup: Map<string, IObjectLookupEntry>, presentValueOrReference: any): PropertyDiffImpl {
+        let propertyDiff: PropertyDiffImpl;
+        if (lookupEntry.presentObject == undefined) {
+            const $formerValue = this.resolveValueOrDiff(formerValueOrReference, objectLookup);
+            propertyDiff = new PropertyDiffImpl(false, this.isDirtyArrow, this.unwrapArrow, $formerValue);
+        }
+        else if (lookupEntry.formerObject == undefined) {
+            const $value = this.resolveValueOrDiff(presentValueOrReference, objectLookup);
+            propertyDiff = new PropertyDiffImpl(false, this.isDirtyArrow, this.unwrapArrow, $value);
+        }
+        else {
+            const $value = this.resolveValueOrDiff(presentValueOrReference, objectLookup);
+            const $formerValue = this.resolveValueOrDiff(formerValueOrReference, objectLookup);
+            const isSameValue = $formerValue === $value;
+            const isSameReference = !isSameValue && this.isReference($formerValue) && this.isReference($value) && $formerValue[objectIdSymbol] === $value[objectIdSymbol];
+            const isSameValueLike = !isSameValue && !isSameReference && this.isSameValueLike($formerValue, $value);
+            if (isSameValue || isSameReference || isSameValueLike) {
+                propertyDiff = new PropertyDiffImpl(false, this.isDirtyArrow, this.unwrapArrow, $value);
+            }
+            else {
+                propertyDiff = new PropertyDiffImpl(true, this.isDirtyArrow, this.unwrapArrow, $value, $formerValue);
+                lookupEntry.diff.$isChanged = true;
+            }
+        }
+        return propertyDiff;
+    }
+
     private bindArrayDiff(objectLookup: Map<string, IObjectLookupEntry>, lookupEntry: IObjectLookupEntry): void {
         if (lookupEntry.formerObject) {
             lookupEntry.diff[objectIdSymbol] = lookupEntry.formerObject[objectIdSymbol];
         }
 
-        if (lookupEntry.presentObject == undefined) {
+        if (lookupEntry.presentObject === null) {
             for (const item of lookupEntry.formerObject) {
                 lookupEntry.diff.$other.push(this.resolveValueOrDiff(item, objectLookup));
             }
         }
 
-        if (lookupEntry.formerObject == undefined) {
+        if (lookupEntry.formerObject === null) {
             for (const item of lookupEntry.presentObject) {
+                if (typeof item === "function") {
+                    continue;
+                }
                 lookupEntry.diff.$other.push(this.resolveValueOrDiff(item, objectLookup));
             }
         }
@@ -146,9 +153,14 @@ export class ChangeChecker {
             // this map holds all possible results as key. The inner arrays 1st index holds the occurrences of the former array and the 2nd index holds the occurrences of the present array.
             const resultMap: Map<any, [any[], any[]]> = new Map();
             for (const item of lookupEntry.presentObject) {
+                if (typeof item === "function") {
+                    continue;
+                }
+
                 const arrayDiffEntry = this.resolveValueOrDiff(item, objectLookup);
-                if (resultMap.has(arrayDiffEntry)) {
-                    resultMap.get(arrayDiffEntry)![1].push(arrayDiffEntry);
+                const entry = resultMap.get(arrayDiffEntry);
+                if (entry) {
+                    entry[1].push(arrayDiffEntry);
                 }
                 else {
                     resultMap.set(arrayDiffEntry, [[], [arrayDiffEntry]]);
@@ -157,8 +169,9 @@ export class ChangeChecker {
 
             for (const item of lookupEntry.formerObject) {
                 const arrayDiffEntry = this.resolveValueOrDiff(item, objectLookup);
-                if (resultMap.has(arrayDiffEntry)) {
-                    resultMap.get(arrayDiffEntry)![0].push(arrayDiffEntry);
+                const entry = resultMap.get(arrayDiffEntry);
+                if (entry) {
+                    entry[0].push(arrayDiffEntry);
                 }
                 else {
                     resultMap.set(arrayDiffEntry, [[arrayDiffEntry], []]);
@@ -167,9 +180,11 @@ export class ChangeChecker {
 
             // now we know all past and present number of occurrences.
 
+            const valueLikes: Array<[any, [any[], any[]]]> = [];
             for (const entry of resultMap) {
                 if (this.isValueLike(entry[0])) {
                     // because maps and sets can not recognize "value likes" equality (new Date(1993, 3) != new Date(1993, 3) == true) we have to skip them for now.
+                    valueLikes.push(entry);
                     continue;
                 }
 
@@ -189,11 +204,9 @@ export class ChangeChecker {
                 // tslint:enable:curly
 
                 // we delete the entry to get a smaller set for the next loop ("value like" handling).
-                resultMap.delete(entry[0]);
             }
 
             // now we sum the number of occurrences of all "value likes".
-            const valueLikes = Array.from(resultMap.entries());
             for (let outerIndex = 0; outerIndex < valueLikes.length; outerIndex++) {
 
                 // find the plugin
@@ -205,7 +218,7 @@ export class ChangeChecker {
                     if (plugin.isMatch(valueLikes[innerIndex][0]) && plugin.equals(valueLikes[outerIndex][0], valueLikes[innerIndex][0])) {
 
                         // push all matching to the smallest index
-                        // tslint:disable:curly => modern browsers should compile this to very efficient assembly
+                        // tslint:disable:curly
                         for (let i = 0; i < valueLikes[innerIndex][1][0].length; valueLikes[outerIndex][1][0].push(valueLikes[innerIndex][1][0][i++])) continue;
                         for (let i = 0; i < valueLikes[innerIndex][1][1].length; valueLikes[outerIndex][1][1].push(valueLikes[innerIndex][1][1][i++])) continue;
                         // tslint:enable:curly
@@ -251,10 +264,7 @@ export class ChangeChecker {
             return;
         }
 
-        if (former instanceof Object) {
-            if (former instanceof Function) {
-                return;
-            }
+        if (typeof former === "object" && former !== null) {
             if (this.isValueLike(former)) {
                 return;
             }
@@ -326,10 +336,7 @@ export class ChangeChecker {
             return;
         }
 
-        if (present instanceof Object) {
-            if (present instanceof Function) {
-                return;
-            }
+        if (typeof present === "object" && present !== null) {
             if (this.isValueLike(present)) {
                 return;
             }
@@ -391,8 +398,9 @@ export class ChangeChecker {
     }
 
     private clone(any: any, referenceMap: Map<any, any>): any {
-        if (referenceMap.has(any)) {
-            return referenceMap.get(any);
+        const circularDependency = referenceMap.get(any);
+        if (circularDependency) {
+            return circularDependency;
         }
 
         if (any == undefined) {
@@ -403,7 +411,7 @@ export class ChangeChecker {
             return any;
         }
 
-        if (any instanceof Function) {
+        if (typeof any === "function") {
             return;
         }
 
@@ -435,11 +443,11 @@ export class ChangeChecker {
         referenceMap.set(source, clone);
 
         for (const item of source) {
-            if (item instanceof Object) {
-                if (item instanceof Function) {
-                    continue;
-                }
+            if (typeof item === "function") {
+                continue;
+            }
 
+            if (typeof item === "object" && item !== null) {
                 clone.push(this.clone(item, referenceMap));
             }
             else {
@@ -457,12 +465,12 @@ export class ChangeChecker {
         for (const propertyInfo of this.getPropertyInfos(source).values()) {
             const property = source[propertyInfo.name];
 
-            let value: any;
-            if (property instanceof Object) {
-                if (property instanceof Function) {
-                    continue;
-                }
+            if (typeof property === "function") {
+                continue;
+            }
 
+            let value: any;
+            if (typeof property === "object" && property !== null) {
                 value = this.clone(property, referenceMap);
             }
             else {
@@ -491,15 +499,15 @@ export class ChangeChecker {
 
         if (Array.isArray(obj)) {
             for (const item of obj) {
-                if (item instanceof Function) {
+                if (typeof item === "function") {
                     continue;
                 }
 
-                if (this.isValueLike(item)) {
-                    continue;
-                }
+                if (typeof item === "object" && item !== null) {
+                    if (this.isValueLike(item)) {
+                        continue;
+                    }
 
-                if (item instanceof Object) {
                     this.assignObjectIds(item, referenceSet);
                 }
             }
@@ -507,15 +515,15 @@ export class ChangeChecker {
         else {
             for (const key of this.getPropertyInfos(obj).keys()) {
                 const value = obj[key];
-                if (value instanceof Function) {
+                if (typeof value === "function") {
                     continue;
                 }
 
-                if (this.isValueLike(value)) {
-                    continue;
-                }
+                if (typeof value === "object" && value !== null) {
+                    if (this.isValueLike(value)) {
+                        continue;
+                    }
 
-                if (value instanceof Object) {
                     this.assignObjectIds(value, referenceSet);
                 }
             }
@@ -541,19 +549,27 @@ export class ChangeChecker {
     }
 
     private resolveValueOrDiff(valueOrReference: any, lookup: Map<string, IObjectLookupEntry>): any {
-        if (this.isReference(valueOrReference)) {
-            return lookup.get(valueOrReference[objectIdSymbol])!.diff;
-        }
+        if (typeof valueOrReference === "object") {
+            if (valueOrReference === null) {
+                return valueOrReference;
+            }
 
-        if (valueOrReference instanceof Object && lookup.has(valueOrReference)) {
+            const objectId = valueOrReference[objectIdSymbol];
+            if (objectId) {
+                return lookup.get(objectId)!.diff;
+            }
+
+            const entry = lookup.get(valueOrReference);
             // in this case we used the presentObject as lookup key
-            return lookup.get(valueOrReference)!.diff;
-        }
+            if (entry) {
+                return entry.diff;
+            }
 
-        const plugin = this.valueLikePlugins.find((x) => x.isMatch(valueOrReference));
-        if (plugin) {
-            // because some "value likes" (like Date) can be changed by methods (e.g. setDate) we need to copy here
-            return plugin.clone!({ clone: <T>(x: T) => this.clone(x, new Map()) }, valueOrReference);
+            const plugin = this.valueLikePlugins.find((x) => x.isMatch(valueOrReference));
+            if (plugin) {
+                // because some "value likes" (like Date) can be changed by methods (e.g. setDate) we need to copy here
+                return plugin.clone!({ clone: <T>(x: T) => this.clone(x, new Map()) }, valueOrReference);
+            }
         }
 
         return valueOrReference;
@@ -716,23 +732,6 @@ export class ChangeChecker {
             return this.isDirtyInternal(diff.$value, referenceSet);
         }
 
-        if (isArrayDiff(diff)) {
-            if (diff.$isChanged || diff.$isCreated || diff.$isDeleted) {
-                return true;
-            }
-
-            for (const item of diff.$other) {
-                if (this.isValueType(item) || this.isValueLike(item)) {
-                    continue;
-                }
-
-                if (item instanceof Object && this.isDirtyInternal(item, referenceSet)) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
         if (isObjectDiff(diff)) {
             if (diff.$isChanged || diff.$isCreated || diff.$isDeleted) {
                 return true;
@@ -750,6 +749,23 @@ export class ChangeChecker {
             }
         }
 
+        if (isArrayDiff(diff)) {
+            if (diff.$isChanged || diff.$isCreated || diff.$isDeleted) {
+                return true;
+            }
+
+            for (const item of diff.$other) {
+                if (this.isValueType(item) || this.isValueLike(item)) {
+                    continue;
+                }
+
+                if (typeof item === "object" && item !== null && this.isDirtyInternal(item, referenceSet)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         return false;
     }
 
@@ -761,11 +777,11 @@ export class ChangeChecker {
     }
 
     private isValueLike(node: any): node is ValueLike {
-        return node instanceof Object && this.valueLikePlugins.some((x) => x.isMatch(node));
+        return typeof node === "object" && node !== null && this.valueLikePlugins.some((x) => x.isMatch(node));
     }
 
     private isReference(node: any): node is { [objectIdSymbol]: string; } {
-        return node != undefined && typeof node[objectIdSymbol] === "string";
+        return typeof node === "object" && node !== null && node[objectIdSymbol] !== undefined;
     }
 }
 
