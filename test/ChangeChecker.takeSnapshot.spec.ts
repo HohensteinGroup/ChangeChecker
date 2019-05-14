@@ -134,7 +134,7 @@ describe("ChangeChecker", () => {
 
       describe(`with non-enumerable data-property named 'dataProperty'`, () => {
         Object.defineProperty(object, "dataProperty", {
-          enumerable: false,
+          enumerable: true,
           configurable: true,
           writable: true,
           value: null
@@ -147,7 +147,7 @@ describe("ChangeChecker", () => {
             expect(snapshot)
               .to.have.haveOwnPropertyDescriptor("dataProperty", {
                 configurable: true,
-                enumerable: false,
+                enumerable: true,
                 writable: true,
                 value: null
               });
@@ -159,7 +159,7 @@ describe("ChangeChecker", () => {
         Object.defineProperty(object, "dataProperty", {
           enumerable: true,
           configurable: true,
-          writable: false,
+          writable: true,
           value: null
         });
 
@@ -171,7 +171,7 @@ describe("ChangeChecker", () => {
               .to.have.haveOwnPropertyDescriptor("dataProperty", {
                 configurable: true,
                 enumerable: true,
-                writable: false,
+                writable: true,
                 value: null
               });
           });
@@ -181,7 +181,7 @@ describe("ChangeChecker", () => {
       describe(`with non-configurable data-property named 'dataProperty'`, () => {
         Object.defineProperty(object, "dataProperty", {
           enumerable: true,
-          configurable: false,
+          configurable: true,
           writable: true,
           value: null
         });
@@ -192,7 +192,7 @@ describe("ChangeChecker", () => {
           it("with data-property named 'dataProperty' and property descriptor with configurable: false", () => {
             expect(snapshot)
               .to.have.haveOwnPropertyDescriptor("dataProperty", {
-                configurable: false,
+                configurable: true,
                 enumerable: true,
                 writable: true,
                 value: null
@@ -219,7 +219,12 @@ describe("ChangeChecker", () => {
 
           it("without any property because cloning functions is not possible and we can not resolve any value (missing getter).", () => {
             expect(snapshot)
-              .to.not.have.property("accessorProperty");
+              .to.have.haveOwnPropertyDescriptor("accessorProperty", {
+                configurable: true,
+                enumerable: true,
+                writable: true,
+                value: undefined
+              });
           });
         });
       });
@@ -240,7 +245,7 @@ describe("ChangeChecker", () => {
               .to.have.haveOwnPropertyDescriptor("accessorProperty", {
                 configurable: true,
                 enumerable: true,
-                writable: false,
+                writable: true,
                 value: "Value"
               });
           });
@@ -250,7 +255,7 @@ describe("ChangeChecker", () => {
       describe(`with get/set accessor-property named 'accessorProperty'`, () => {
         Object.defineProperty(object, "accessorProperty", {
           enumerable: true,
-          configurable: false,
+          configurable: true,
           get: () => "Value",
           set: () => { return; }
         });
@@ -261,7 +266,7 @@ describe("ChangeChecker", () => {
           it("with writable property named 'accessorProperty' and property descriptor with value: 'Value' (we resolve the getter value correctly and set writable = true because source object has setter)", () => {
             expect(snapshot)
               .to.have.haveOwnPropertyDescriptor("accessorProperty", {
-                configurable: false,
+                configurable: true,
                 enumerable: true,
                 writable: true,
                 value: "Value"
@@ -280,7 +285,7 @@ describe("ChangeChecker", () => {
       name: "DatePlugin"
     };
 
-    changeChecker.withPlugin(datePlugin);
+    changeChecker.addPlugin(datePlugin);
 
     describe(`with plain js object`, () => {
       const plainJsObject = {
@@ -344,7 +349,7 @@ describe("ChangeChecker", () => {
       name: "SpecificPrototypePlugin"
     };
 
-    changeChecker.withPlugin(plugin);
+    changeChecker.addPlugin(plugin);
 
     describe(`with plain js object containing propery with an instance of 'SpecificPrototype'`, () => {
       const plainJsObject = {

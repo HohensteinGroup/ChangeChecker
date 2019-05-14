@@ -4,11 +4,14 @@ export const objectIdSymbol: unique symbol = Symbol.for("objectId");
 
 export class ChangeChecker {
     private currentObjectId: number = 0;
-    private referenceLikesPlugins: Array<IReferenceLikePlugin<any>> = [];
+    private referenceLikePlugins: Array<IReferenceLikePlugin<any>> = [];
     private valueLikePlugins: Array<IValueLikePlugin<any>> = [];
 
-    public withPlugin<T>(plugin: IReferenceLikePlugin<T> | IValueLikePlugin<T>): ChangeChecker {
-        if (this.referenceLikesPlugins.some((x) => x.name === plugin.name) || this.valueLikePlugins.some((x) => x.name === plugin.name)) {
+    // to avoid deoptimizations we reuse the globalLookup
+    private globalLookup: Map<any, IObjectLookupEntry> = new Map();
+
+    public addPlugin<T>(plugin: IReferenceLikePlugin<T> | IValueLikePlugin<T>): ChangeChecker {
+        if (this.referenceLikePlugins.some((x) => x.name === plugin.name) || this.valueLikePlugins.some((x) => x.name === plugin.name)) {
             throw new Error(`Plugin with name ${plugin.name} is already registered.`);
         }
 
@@ -16,10 +19,26 @@ export class ChangeChecker {
             this.valueLikePlugins.push(plugin);
         }
         else {
-            this.referenceLikesPlugins.push(plugin);
+            this.referenceLikePlugins.push(plugin);
         }
 
         return this;
+    }
+
+    public removePlugin(name: string): ChangeChecker {
+        let index = this.referenceLikePlugins.findIndex((x) => x.name === name);
+        if (index !== -1) {
+            this.referenceLikePlugins.splice(index, 1);
+            return this;
+        }
+
+        index = this.valueLikePlugins.findIndex((x) => x.name === name);
+        if (index !== -1) {
+            this.valueLikePlugins.splice(index, 1);
+            return this;
+        }
+
+        throw new Error(`Plugin with name ${name} not found.`);
     }
 
     public takeSnapshot<T extends object>(model: T): T {
@@ -45,76 +64,58 @@ export class ChangeChecker {
     private unwrapArrow = (era: Era, diff: any) => era === Era.Present ? this.unwrapPresentInternal(diff, new Map()) : this.unwrapFormerInternal(diff, new Map());
 
     private createDiffInternal(formerObject: any, presentObject: any): any {
-        const objectLookup: Map<any, IObjectLookupEntry> = new Map();
-        this.fillObjectLookupFormer(formerObject, objectLookup, new Set());
-        this.fillObjectLookupPresent(presentObject, objectLookup, new Set());
+        const globalLookup = this.buildLookupTree(formerObject, presentObject);
 
-        for (const entry of objectLookup.values()) {
-            let result: ArrayDiffImpl | ObjectDiffImpl;
+        for (const entry of globalLookup.values()) {
             if (Array.isArray(entry.formerObject || entry.presentObject)) {
-                const $isCreated = entry.formerObject === null;
-                const $isDeleted = entry.presentObject === null;
-
-                result = new ArrayDiffImpl($isCreated, $isDeleted, false, this.isDirtyArrow, this.unwrapArrow);
+                this.bindArrayDiff(entry, globalLookup);
             }
             else {
-                const $isCreated = entry.formerObject === null;
-                const $isDeleted = entry.presentObject === null;
-
-                result = new ObjectDiffImpl($isCreated, $isDeleted, false, this.isDirtyArrow, this.unwrapArrow);
-            }
-
-            entry.diff = result;
-        }
-
-        for (const entry of objectLookup.values()) {
-            if (Array.isArray(entry.formerObject || entry.presentObject)) {
-                this.bindArrayDiff(objectLookup, entry);
-            }
-            else {
-                this.bindObjectDiff(objectLookup, entry);
+                this.bindObjectDiff(entry, globalLookup);
             }
         }
 
-        return objectLookup.get(formerObject[objectIdSymbol])!.diff;
+        const result = globalLookup.get(formerObject[objectIdSymbol])!.diff;
+
+        this.globalLookup.clear();
+
+        return result;
     }
 
-    private bindObjectDiff(objectLookup: Map<string, IObjectLookupEntry>, lookupEntry: IObjectLookupEntry): void {
+    private bindObjectDiff(lookupEntry: IObjectLookupEntry, globalLookup: Map<any, IObjectLookupEntry>): void {
+        lookupEntry.diff[$isCreatedSymbol] = lookupEntry.formerObject === null;
+        lookupEntry.diff[$isDeletedSymbol] = lookupEntry.presentObject === null;
+
         if (lookupEntry.formerObject) {
             lookupEntry.diff[objectIdSymbol] = lookupEntry.formerObject[objectIdSymbol];
         }
 
-        for (const propertyInfo of lookupEntry.propertyInfos.values()) {
-            const formerValueOrReference = lookupEntry.formerObject ? lookupEntry.formerObject[propertyInfo.name] : undefined;
-            const presentValueOrReference = lookupEntry.presentObject ? lookupEntry.presentObject[propertyInfo.name] : undefined;
+        for (const propertyKey of lookupEntry.propertyKeys) {
+            const formerValueOrReference = lookupEntry.formerObject ? lookupEntry.formerObject[propertyKey] : undefined;
+            const presentValueOrReference = lookupEntry.presentObject ? lookupEntry.presentObject[propertyKey] : undefined;
             if (typeof formerValueOrReference === "function" || typeof presentValueOrReference === "function") {
                 continue;
             }
 
-            const propertyDiff: PropertyDiffImpl = this.createPropertyDiff(lookupEntry, formerValueOrReference, objectLookup, presentValueOrReference);
+            const propertyDiff: PropertyDiffImpl = this.createPropertyDiff(lookupEntry, globalLookup, formerValueOrReference, presentValueOrReference);
 
-            Object.defineProperty(lookupEntry.diff, propertyInfo.name, {
-                writable: propertyInfo.writable,
-                value: propertyDiff,
-                enumerable: propertyInfo.enumerable,
-                configurable: propertyInfo.configurable
-            });
+            lookupEntry.diff[propertyKey] = propertyDiff;
         }
     }
 
-    private createPropertyDiff(lookupEntry: IObjectLookupEntry, formerValueOrReference: any, objectLookup: Map<string, IObjectLookupEntry>, presentValueOrReference: any): PropertyDiffImpl {
+    private createPropertyDiff(lookupEntry: IObjectLookupEntry, globalLookup: Map<any, IObjectLookupEntry>, formerValueOrReference: any, presentValueOrReference: any): PropertyDiffImpl {
         let propertyDiff: PropertyDiffImpl;
-        if (lookupEntry.presentObject == undefined) {
-            const $formerValue = this.resolveValueOrDiff(formerValueOrReference, objectLookup);
+        if (lookupEntry.presentObject === null) {
+            const $formerValue = this.resolveValueOrDiff(formerValueOrReference, globalLookup);
             propertyDiff = new PropertyDiffImpl(false, this.isDirtyArrow, this.unwrapArrow, $formerValue);
         }
-        else if (lookupEntry.formerObject == undefined) {
-            const $value = this.resolveValueOrDiff(presentValueOrReference, objectLookup);
+        else if (lookupEntry.formerObject === null) {
+            const $value = this.resolveValueOrDiff(presentValueOrReference, globalLookup);
             propertyDiff = new PropertyDiffImpl(false, this.isDirtyArrow, this.unwrapArrow, $value);
         }
         else {
-            const $value = this.resolveValueOrDiff(presentValueOrReference, objectLookup);
-            const $formerValue = this.resolveValueOrDiff(formerValueOrReference, objectLookup);
+            const $value = this.resolveValueOrDiff(presentValueOrReference, globalLookup);
+            const $formerValue = this.resolveValueOrDiff(formerValueOrReference, globalLookup);
             const isSameValue = $formerValue === $value;
             const isSameReference = !isSameValue && this.isReference($formerValue) && this.isReference($value) && $formerValue[objectIdSymbol] === $value[objectIdSymbol];
             const isSameValueLike = !isSameValue && !isSameReference && this.isSameValueLike($formerValue, $value);
@@ -123,20 +124,25 @@ export class ChangeChecker {
             }
             else {
                 propertyDiff = new PropertyDiffImpl(true, this.isDirtyArrow, this.unwrapArrow, $value, $formerValue);
-                lookupEntry.diff.$isChanged = true;
+                lookupEntry.diff[$isChangedSymbol] = true;
             }
         }
         return propertyDiff;
     }
 
-    private bindArrayDiff(objectLookup: Map<string, IObjectLookupEntry>, lookupEntry: IObjectLookupEntry): void {
+    private bindArrayDiff(lookupEntry: IObjectLookupEntry, globalLookup: Map<any, IObjectLookupEntry>): void {
+        // This method is optimized for speed. This is why we prefer arrays over objects.
+
+        lookupEntry.diff.$isCreated = lookupEntry.formerObject === null;
+        lookupEntry.diff.$isDeleted = lookupEntry.presentObject === null;
+
         if (lookupEntry.formerObject) {
             lookupEntry.diff[objectIdSymbol] = lookupEntry.formerObject[objectIdSymbol];
         }
 
         if (lookupEntry.presentObject === null) {
             for (const item of lookupEntry.formerObject) {
-                lookupEntry.diff.$other.push(this.resolveValueOrDiff(item, objectLookup));
+                lookupEntry.diff.$other.push(this.resolveValueOrDiff(item, globalLookup));
             }
         }
 
@@ -145,7 +151,7 @@ export class ChangeChecker {
                 if (typeof item === "function") {
                     continue;
                 }
-                lookupEntry.diff.$other.push(this.resolveValueOrDiff(item, objectLookup));
+                lookupEntry.diff.$other.push(this.resolveValueOrDiff(item, globalLookup));
             }
         }
 
@@ -157,7 +163,7 @@ export class ChangeChecker {
                     continue;
                 }
 
-                const arrayDiffEntry = this.resolveValueOrDiff(item, objectLookup);
+                const arrayDiffEntry = this.resolveValueOrDiff(item, globalLookup);
                 const entry = resultMap.get(arrayDiffEntry);
                 if (entry) {
                     entry[1].push(arrayDiffEntry);
@@ -168,7 +174,7 @@ export class ChangeChecker {
             }
 
             for (const item of lookupEntry.formerObject) {
-                const arrayDiffEntry = this.resolveValueOrDiff(item, objectLookup);
+                const arrayDiffEntry = this.resolveValueOrDiff(item, globalLookup);
                 const entry = resultMap.get(arrayDiffEntry);
                 if (entry) {
                     entry[0].push(arrayDiffEntry);
@@ -177,8 +183,6 @@ export class ChangeChecker {
                     resultMap.set(arrayDiffEntry, [[arrayDiffEntry], []]);
                 }
             }
-
-            // now we know all past and present number of occurrences.
 
             const valueLikes: Array<[any, [any[], any[]]]> = [];
             for (const entry of resultMap) {
@@ -195,15 +199,11 @@ export class ChangeChecker {
                 const inserted = presentOccurrences.splice(0, presentOccurrences.length - formerOccurrences.length);
                 const other = inserted.length > 0 ? presentOccurrences : formerOccurrences;
 
-                // now we know what happend to the elements and push the results to the diff
-
                 // tslint:disable:curly
                 for (let i = 0; i < deleted.length; lookupEntry.diff.$deleted.push(deleted[i++])) continue;
                 for (let i = 0; i < inserted.length; lookupEntry.diff.$inserted.push(inserted[i++])) continue;
                 for (let i = 0; i < other.length; lookupEntry.diff.$other.push(other[i++])) continue;
                 // tslint:enable:curly
-
-                // we delete the entry to get a smaller set for the next loop ("value like" handling).
             }
 
             // now we sum the number of occurrences of all "value likes".
@@ -213,7 +213,6 @@ export class ChangeChecker {
                 const plugin = this.valueLikePlugins.find((x) => x.isMatch(valueLikes[outerIndex][0]))!;
 
                 for (let innerIndex = outerIndex + 1; innerIndex < valueLikes.length;) {
-
                     // find all matching value likes
                     if (plugin.isMatch(valueLikes[innerIndex][0]) && plugin.equals(valueLikes[outerIndex][0], valueLikes[innerIndex][0])) {
 
@@ -240,8 +239,6 @@ export class ChangeChecker {
                 const inserted = presentOccurrences.splice(0, presentOccurrences.length - formerOccurrences.length);
                 const other = inserted.length > 0 ? presentOccurrences : formerOccurrences;
 
-                // now we know what happend to the elements and push the results to the diff
-
                 // tslint:disable:curly
                 for (let i = 0; i < deleted.length; lookupEntry.diff.$deleted.push(deleted[i++])) continue;
                 for (let i = 0; i < inserted.length; lookupEntry.diff.$inserted.push(inserted[i++])) continue;
@@ -253,147 +250,183 @@ export class ChangeChecker {
         lookupEntry.diff.$isChanged = lookupEntry.diff.$inserted.length > 0 || lookupEntry.diff.$deleted.length > 0;
     }
 
-    private fillObjectLookupFormer(former: any, objectLookup: Map<any, IObjectLookupEntry>, referenceSet: Set<any>): void {
-        if (Array.isArray(former)) {
-            if (referenceSet.has(former)) {
-                return;
-            }
-            referenceSet.add(former);
+    private buildLookupTree(formerObject: any, presentObject: any): Map<any, IObjectLookupEntry> {
+        // this functions builds up a tree like structure.
+        // the globalLookup contains all objects (key = objectId | or the object itself if it doesnt have an objectId).
+        // interface IObjectLookupEntry {
+        //     formerObject: any; => the object of the snapshot
+        //     presentObject: any; => the object of the current model
+        //     propertyKeys: Set<string>; => all propertyKeys of the two objects
+        //     diff: any; => the ObjectDiff or ArrayDiff
+        // }
+        this.buildFormerLookupTree(formerObject, this.globalLookup);
+        this.buildPresentLookupTree(presentObject, this.globalLookup);
+        return this.globalLookup;
+    }
 
-            this.fillObjectLookupFormerArray(former, objectLookup, referenceSet);
+    private buildFormerLookupTree(former: any, globalLookup: Map<any, IObjectLookupEntry>): void {
+        if (Array.isArray(former)) {
+            this.buildFormerArrayLookupTree(former, globalLookup);
             return;
         }
 
-        if (typeof former === "object" && former !== null) {
+        if (this.isObject(former)) {
             if (this.isValueLike(former)) {
                 return;
             }
 
-            if (referenceSet.has(former)) {
-                return;
-            }
-            referenceSet.add(former);
-
-            this.fillObjectLookupFormerObject(former, objectLookup, referenceSet);
+            this.buildFormerObjectLookupTree(former, globalLookup);
         }
     }
 
-    private fillObjectLookupFormerArray(formerArray: any[], objectLookup: Map<any, IObjectLookupEntry>, referenceSet: Set<any>): void {
+    private buildFormerArrayLookupTree(formerArray: any[], globalLookup: Map<any, IObjectLookupEntry>): void {
         const lookupKey = (formerArray as any)[objectIdSymbol];
 
-        let lookupEntry: IObjectLookupEntry | undefined = objectLookup.get(lookupKey);
-        if (lookupEntry == undefined) {
+        let lookupEntry: IObjectLookupEntry | undefined = globalLookup.get(lookupKey);
+        if (lookupEntry === undefined) {
             lookupEntry = {
                 formerObject: formerArray,
                 presentObject: null,
-                propertyInfos: new Map(),
-                diff: null
+                propertyKeys: new Set(),
+                diff: new ArrayDiffImpl(this.isDirtyArrow, this.unwrapArrow)
             };
-            objectLookup.set(lookupKey, lookupEntry);
+
+            globalLookup.set(lookupKey, lookupEntry);
         }
         else {
+            if (lookupEntry.formerObject) {
+                // if the object is already set, it must have already been processed and we can stop here (circular reference protection)
+                return;
+            }
+
             lookupEntry.formerObject = formerArray;
         }
 
         for (const item of formerArray) {
-            this.fillObjectLookupFormer(item, objectLookup, referenceSet);
+            this.buildFormerLookupTree(item, globalLookup);
         }
     }
 
-    private fillObjectLookupFormerObject(formerObject: any, objectLookup: Map<any, IObjectLookupEntry>, referenceSet: Set<any>): void {
+    private buildFormerObjectLookupTree(formerObject: any, globalLookup: Map<any, IObjectLookupEntry>): void {
         const lookupKey = (formerObject as any)[objectIdSymbol];
 
-        let lookupEntry: IObjectLookupEntry | undefined = objectLookup.get(lookupKey);
-        const propertyInfos = this.getPropertyInfos(formerObject);
-        if (lookupEntry == undefined) {
+        let lookupEntry: IObjectLookupEntry | undefined = globalLookup.get(lookupKey);
+        if (lookupEntry === undefined) {
+            const propertyKeys = this.getPropertyKeys(formerObject);
+
             lookupEntry = {
                 formerObject,
                 presentObject: null,
-                propertyInfos,
-                diff: null
+                propertyKeys,
+                diff: new ObjectDiffImpl(this.isDirtyArrow, this.unwrapArrow)
             };
-            objectLookup.set(lookupKey, lookupEntry);
+
+            globalLookup.set(lookupKey, lookupEntry);
+
+            for (const propertyKey of propertyKeys) {
+                const property = formerObject[propertyKey];
+                this.buildFormerLookupTree(property, globalLookup);
+            }
         }
         else {
-            propertyInfos.forEach((info, key) => lookupEntry!.propertyInfos.set(key, info));
+            if (lookupEntry.formerObject) {
+                return;
+            }
             lookupEntry.formerObject = formerObject;
-        }
 
-        for (const propertyKey of propertyInfos.keys()) {
-            const property = formerObject[propertyKey];
-            this.fillObjectLookupFormer(property, objectLookup, referenceSet);
+            for (const propertyKey of this.getPropertyKeys(formerObject)) {
+                lookupEntry.propertyKeys.add(propertyKey);
+                const property = formerObject[propertyKey];
+                this.buildFormerLookupTree(property, globalLookup);
+            }
         }
     }
 
-    private fillObjectLookupPresent(present: any, objectLookup: Map<any, IObjectLookupEntry>, referenceSet: Set<any>): void {
+    private buildPresentLookupTree(present: any, globalLookup: Map<any, IObjectLookupEntry>): void {
         if (Array.isArray(present)) {
-            if (referenceSet.has(present)) {
-                return;
-            }
-            referenceSet.add(present);
-
-            this.fillObjectLookupPresentArray(present, objectLookup, referenceSet);
+            this.buildPresentArrayLookupTree(present, globalLookup);
             return;
         }
 
-        if (typeof present === "object" && present !== null) {
+        if (this.isObject(present)) {
             if (this.isValueLike(present)) {
                 return;
             }
 
-            if (referenceSet.has(present)) {
-                return;
-            }
-            referenceSet.add(present);
-
-            this.fillObjectLookupPresentObject(present, objectLookup, referenceSet);
+            this.buildPresentObjectLookupTree(present, globalLookup);
         }
     }
 
-    private fillObjectLookupPresentArray(presentArray: any[], objectLookup: Map<any, IObjectLookupEntry>, referenceSet: Set<any>): void {
+    private buildPresentArrayLookupTree(presentArray: any[], globalLookup: Map<any, IObjectLookupEntry>): void {
+        // not all arrays of the present model must have an objectId (newly created objects) so we can use the object itself as fallback key for the lookup
         const lookupKey = (presentArray as any)[objectIdSymbol] || presentArray;
 
-        let lookupEntry: IObjectLookupEntry | undefined = objectLookup.get(lookupKey);
-        if (lookupEntry == undefined) {
+        let lookupEntry: IObjectLookupEntry | undefined = globalLookup.get(lookupKey);
+        if (lookupEntry === undefined) {
             lookupEntry = {
                 formerObject: null,
                 presentObject: presentArray,
-                propertyInfos: new Map(),
-                diff: null
+                propertyKeys: new Set(),
+                diff: new ArrayDiffImpl(this.isDirtyArrow, this.unwrapArrow)
             };
-            objectLookup.set(lookupKey, lookupEntry);
+
+            globalLookup.set(lookupKey, lookupEntry);
         }
         else {
+            if (lookupEntry.presentObject) {
+                if (lookupEntry.presentObject !== presentArray) {
+                    throw new Error(`The present model contains two different objects with the same objectId (${lookupKey}). Did you mix partial snapshots containing the same object at different places?`);
+                }
+                // if the object is already set, it must have already been processed and we can stop here (circular reference protection)
+                return;
+            }
+
             lookupEntry.presentObject = presentArray;
         }
 
         for (const item of presentArray) {
-            this.fillObjectLookupPresent(item, objectLookup, referenceSet);
+            this.buildPresentLookupTree(item, globalLookup);
         }
     }
 
-    private fillObjectLookupPresentObject(presentObject: any, objectLookup: Map<any, IObjectLookupEntry>, referenceSet: Set<any>): void {
+    private buildPresentObjectLookupTree(presentObject: any, globalLookup: Map<any, IObjectLookupEntry>): void {
+        // not all objects of the present model must have an objectId (newly created objects) so we can use the object itself as fallback key for the lookup
         const lookupKey = (presentObject as any)[objectIdSymbol] || presentObject;
 
-        let lookupEntry: IObjectLookupEntry | undefined = objectLookup.get(lookupKey);
-        const propertyInfos = this.getPropertyInfos(presentObject);
-        if (lookupEntry == undefined) {
+        let lookupEntry: IObjectLookupEntry | undefined = globalLookup.get(lookupKey);
+        if (lookupEntry === undefined) {
+            const propertyKeys = this.getPropertyKeys(presentObject);
+
             lookupEntry = {
                 formerObject: null,
                 presentObject,
-                propertyInfos,
-                diff: null
+                propertyKeys,
+                diff: new ObjectDiffImpl(this.isDirtyArrow, this.unwrapArrow)
             };
-            objectLookup.set(lookupKey, lookupEntry);
+
+            globalLookup.set(lookupKey, lookupEntry);
+
+            for (const propertyKey of propertyKeys) {
+                const property = presentObject[propertyKey];
+                this.buildPresentLookupTree(property, globalLookup);
+            }
         }
         else {
-            propertyInfos.forEach((info, key) => lookupEntry!.propertyInfos.set(key, info));
+            if (lookupEntry.presentObject) {
+                if (lookupEntry.presentObject !== presentObject) {
+                    throw new Error(`The present model contains two different objects with the same objectId (${lookupKey}). Did you mix partial snapshots containing the same object at different places?`);
+                }
+                // if the object is already set, it must have already been processed and we can stop here (circular reference protection)
+                return;
+            }
             lookupEntry.presentObject = presentObject;
-        }
 
-        for (const propertyKey of propertyInfos.keys()) {
-            const property = presentObject[propertyKey];
-            this.fillObjectLookupPresent(property, objectLookup, referenceSet);
+            for (const propertyKey of this.getPropertyKeys(presentObject)) {
+                // we have to add all propertyKeys again because the present object may have other propertyKeys as the former object
+                lookupEntry.propertyKeys.add(propertyKey);
+                const property = presentObject[propertyKey];
+                this.buildPresentLookupTree(property, globalLookup);
+            }
         }
     }
 
@@ -403,11 +436,7 @@ export class ChangeChecker {
             return circularDependency;
         }
 
-        if (any == undefined) {
-            return any;
-        }
-
-        if (this.isValueType(any)) {
+        if (any == undefined || this.isValueType(any)) {
             return any;
         }
 
@@ -415,26 +444,29 @@ export class ChangeChecker {
             return;
         }
 
-        let plugin: IValueLikePlugin<any> | IReferenceLikePlugin<any> | undefined = this.valueLikePlugins.find((x) => x.isMatch(any));
-        if (plugin) {
-            return plugin.clone({ clone: <T>(x: T) => this.clone(x, referenceMap) }, any);
+        for (const plugin of this.valueLikePlugins) {
+            if (plugin.isMatch(any)) {
+                return plugin.clone({ clone: (x) => this.clone(x, referenceMap) }, any);
+            }
+        }
+
+        for (const plugin of this.referenceLikePlugins) {
+            if (plugin.clone && plugin.isMatch(any)) {
+                const clone = plugin.clone({ clone: (x) => this.clone(x, referenceMap) }, any);
+                clone[objectIdSymbol] = any[objectIdSymbol];
+                return clone;
+            }
         }
 
         let result: any;
-
-        plugin = this.referenceLikesPlugins.find((x) => x.clone != undefined && x.isMatch(any));
-        if (plugin) {
-            result = plugin.clone!({ clone: <T>(x: T) => this.clone(x, referenceMap) }, any);
-            referenceMap.set(any, result);
-        }
-        else if (Array.isArray(any)) {
+        if (Array.isArray(any)) {
             result = this.cloneArray(any, referenceMap);
         }
         else {
             result = this.cloneObject(any, referenceMap);
         }
 
-        setObjectIdRaw(result, any[objectIdSymbol]);
+        result[objectIdSymbol] = any[objectIdSymbol];
         return result;
     }
 
@@ -447,7 +479,7 @@ export class ChangeChecker {
                 continue;
             }
 
-            if (typeof item === "object" && item !== null) {
+            if (this.isObject(item)) {
                 clone.push(this.clone(item, referenceMap));
             }
             else {
@@ -459,30 +491,25 @@ export class ChangeChecker {
     }
 
     private cloneObject(source: any, referenceMap: Map<any, any>): any {
-        const clone = {};
+        const clone = {} as any;
         referenceMap.set(source, clone);
 
-        for (const propertyInfo of this.getPropertyInfos(source).values()) {
-            const property = source[propertyInfo.name];
+        for (const propertyKey of this.getPropertyKeys(source)) {
+            const property = source[propertyKey];
 
             if (typeof property === "function") {
                 continue;
             }
 
             let value: any;
-            if (typeof property === "object" && property !== null) {
+            if (this.isObject(property)) {
                 value = this.clone(property, referenceMap);
             }
             else {
                 value = property;
             }
 
-            Object.defineProperty(clone, propertyInfo.name, {
-                enumerable: propertyInfo.enumerable,
-                writable: propertyInfo.writable,
-                configurable: propertyInfo.configurable,
-                value
-            });
+            clone[propertyKey] = value;
         }
         return clone;
     }
@@ -494,7 +521,7 @@ export class ChangeChecker {
         referenceSet.add(obj);
 
         if (obj[objectIdSymbol] == undefined) {
-            setObjectIdRaw(obj, this.getNextObjectId().toString());
+            obj[objectIdSymbol] = this.getNextObjectId().toString();
         }
 
         if (Array.isArray(obj)) {
@@ -503,7 +530,7 @@ export class ChangeChecker {
                     continue;
                 }
 
-                if (typeof item === "object" && item !== null) {
+                if (this.isObject(item)) {
                     if (this.isValueLike(item)) {
                         continue;
                     }
@@ -513,13 +540,13 @@ export class ChangeChecker {
             }
         }
         else {
-            for (const key of this.getPropertyInfos(obj).keys()) {
-                const value = obj[key];
+            for (const propertyKey of this.getPropertyKeys(obj)) {
+                const value = obj[propertyKey];
                 if (typeof value === "function") {
                     continue;
                 }
 
-                if (typeof value === "object" && value !== null) {
+                if (this.isObject(value)) {
                     if (this.isValueLike(value)) {
                         continue;
                     }
@@ -555,13 +582,13 @@ export class ChangeChecker {
             }
 
             const objectId = valueOrReference[objectIdSymbol];
-            if (objectId) {
+            if (objectId !== undefined) {
                 return lookup.get(objectId)!.diff;
             }
 
             const entry = lookup.get(valueOrReference);
-            // in this case we used the presentObject as lookup key
-            if (entry) {
+            if (entry !== undefined) {
+                // in this case we used the present object as lookup key (see: buildPresentObjectLookupTree)
                 return entry.diff;
             }
 
@@ -575,35 +602,18 @@ export class ChangeChecker {
         return valueOrReference;
     }
 
-    private getPropertyInfos(obj: any): Map<string, IPropertyInfo> {
-        const result = new Map<string, IPropertyInfo>();
-
-        if (obj == undefined) {
-            return result;
-        }
+    private getPropertyKeys(obj: any): Set<string> {
+        const result: Set<string> = new Set();
 
         for (let prototype = obj; prototype && prototype !== Object.prototype; prototype = Object.getPrototypeOf(prototype)) {
             for (const name of Object.getOwnPropertyNames(prototype)) {
-                if (result.has(name)) {
-                    continue;
-                }
 
+                // ignore constructor, system-defined and set only properties
                 if ((name[0] === "_" && name[1] === "_") || name === "constructor") {
-                    // ignore constructor, system-defined and set only properties
                     continue;
                 }
 
-                const descriptor = Object.getOwnPropertyDescriptor(prototype, name)!;
-                if (descriptor.set && descriptor.get == undefined) {
-                    continue;
-                }
-
-                result.set(name, {
-                    name,
-                    enumerable: descriptor.enumerable === true,
-                    writable: descriptor.writable === true || descriptor.set != undefined,
-                    configurable: descriptor.configurable === true
-                });
+                result.add(name);
             }
         }
 
@@ -636,28 +646,32 @@ export class ChangeChecker {
             formerArray.push(...diff.$other.map((x) => this.isValueType(x) || this.isValueLike(x) ? x : this.unwrapFormerInternal(x, referenceMap)));
             formerArray.push(...diff.$deleted.map((x) => this.isValueType(x) || this.isValueLike(x) ? x : this.unwrapFormerInternal(x, referenceMap)));
 
+            const objectId = (diff as any)[objectIdSymbol];
+            if (objectId) {
+                formerArray[objectIdSymbol] = objectId;
+            }
+
             return formerArray;
         }
 
         if (isObjectDiff(diff)) {
             const formerObject: any = {};
             referenceMap.set(diff, formerObject);
-            // TODO: take care about incoming prototype chain
-            for (const propertyResult of Array.from(this.getPropertyInfos(diff).values())
-                .filter((x) => x.name !== "$state")
-                .filter((x) => x.name !== "$isCreated")
-                .filter((x) => x.name !== "$isDeleted")
-                .filter((x) => x.name !== "$isChanged")
-                .filter((x) => x.name !== "$isDirty")
-                .filter((x) => x.name !== "$unwrap")
-                .map((property) => ({ property, result: this.unwrapFormerInternal((diff as any)[property.name], referenceMap) }))) {
+            for (const propertyResult of Array.from(this.getPropertyKeys(diff))
+                .filter((x) => x !== "$state")
+                .filter((x) => x !== "$isCreated")
+                .filter((x) => x !== "$isDeleted")
+                .filter((x) => x !== "$isChanged")
+                .filter((x) => x !== "$isDirty")
+                .filter((x) => x !== "$unwrap")
+                .map((property) => ({ property, result: this.unwrapFormerInternal((diff as any)[property], referenceMap) }))) {
 
-                Object.defineProperty(formerObject, propertyResult.property.name, {
-                    configurable: propertyResult.property.configurable,
-                    enumerable: propertyResult.property.enumerable,
-                    writable: propertyResult.property.writable,
-                    value: propertyResult.result
-                });
+                const objectId = (diff as any)[objectIdSymbol];
+                if (objectId) {
+                    formerObject[objectIdSymbol] = objectId;
+                }
+
+                formerObject[propertyResult.property] = propertyResult.result;
             }
 
             return formerObject;
@@ -685,27 +699,32 @@ export class ChangeChecker {
             presentArray.push(...diff.$other.map((x) => this.isValueType(x) || this.isValueLike(x) ? x : this.unwrapPresentInternal(x, referenceMap)));
             presentArray.push(...diff.$inserted.map((x) => this.isValueType(x) || this.isValueLike(x) ? x : this.unwrapPresentInternal(x, referenceMap)));
 
+            const objectId = (diff as any)[objectIdSymbol];
+            if (objectId) {
+                presentArray[objectIdSymbol] = objectId;
+            }
+
             return presentArray;
         }
 
         if (isObjectDiff(diff)) {
             const presentObject: any = {};
             referenceMap.set(diff, presentObject);
-            for (const propertyResult of Array.from(this.getPropertyInfos(diff).values())
-                .filter((x) => x.name !== "$state")
-                .filter((x) => x.name !== "$isCreated")
-                .filter((x) => x.name !== "$isDeleted")
-                .filter((x) => x.name !== "$isChanged")
-                .filter((x) => x.name !== "$isDirty")
-                .filter((x) => x.name !== "$unwrap")
-                .map((property) => ({ property, result: this.unwrapPresentInternal((diff as any)[property.name], referenceMap) }))) {
+            for (const propertyResult of Array.from(this.getPropertyKeys(diff))
+                .filter((x) => x !== "$state")
+                .filter((x) => x !== "$isCreated")
+                .filter((x) => x !== "$isDeleted")
+                .filter((x) => x !== "$isChanged")
+                .filter((x) => x !== "$isDirty")
+                .filter((x) => x !== "$unwrap")
+                .map((property) => ({ property, result: this.unwrapPresentInternal((diff as any)[property], referenceMap) }))) {
 
-                Object.defineProperty(presentObject, propertyResult.property.name, {
-                    configurable: propertyResult.property.configurable,
-                    enumerable: propertyResult.property.enumerable,
-                    writable: propertyResult.property.writable,
-                    value: propertyResult.result
-                });
+                presentObject[propertyResult.property] = propertyResult.result;
+            }
+
+            const objectId = (diff as any)[objectIdSymbol];
+            if (objectId) {
+                presentObject[objectIdSymbol] = objectId;
             }
 
             return presentObject;
@@ -729,7 +748,9 @@ export class ChangeChecker {
                 return false;
             }
 
-            return this.isDirtyInternal(diff.$value, referenceSet);
+            if (this.isDirtyInternal(diff.$value, referenceSet)) {
+                return true;
+            }
         }
 
         if (isObjectDiff(diff)) {
@@ -737,16 +758,14 @@ export class ChangeChecker {
                 return true;
             }
 
-            for (const key of this.getPropertyInfos(diff).keys()) {
+            for (const key of this.getPropertyKeys(diff)) {
                 const property = (diff as any)[key];
-                if (!isPropertyDiff(property)) {
-                    continue;
-                }
-
                 if (this.isDirtyInternal(property, referenceSet)) {
                     return true;
                 }
             }
+
+            return false;
         }
 
         if (isArrayDiff(diff)) {
@@ -759,14 +778,17 @@ export class ChangeChecker {
                     continue;
                 }
 
-                if (typeof item === "object" && item !== null && this.isDirtyInternal(item, referenceSet)) {
+                if (this.isObject(item) && this.isDirtyInternal(item, referenceSet)) {
                     return true;
                 }
             }
-            return false;
         }
 
         return false;
+    }
+
+    private isObject(node: any): boolean {
+        return typeof node === "object" && node !== null;
     }
 
     private isValueType(node: any): node is ValueType {
@@ -777,25 +799,12 @@ export class ChangeChecker {
     }
 
     private isValueLike(node: any): node is ValueLike {
-        return typeof node === "object" && node !== null && this.valueLikePlugins.some((x) => x.isMatch(node));
+        return this.isObject(node) && this.valueLikePlugins.some((x) => x.isMatch(node));
     }
 
     private isReference(node: any): node is { [objectIdSymbol]: string; } {
-        return typeof node === "object" && node !== null && node[objectIdSymbol] !== undefined;
+        return this.isObject(node) && node[objectIdSymbol] !== undefined;
     }
-}
-
-export function setObjectId<T extends IObjectEntity>(object: T, typeName: string, ...propertyKeys: Array<keyof T>): void {
-    let objectId = typeName;
-    for (const propertyKey of propertyKeys) {
-        objectId += "_" + object[propertyKey];
-    }
-
-    setObjectIdRaw(object, objectId);
-}
-
-export function setObjectIdRaw(object: any, objectId: string): void {
-    object[objectIdSymbol] = objectId;
 }
 
 export function isArrayDiff<T>(node: IArrayDiff<T> | any): node is IArrayDiff<T> {
@@ -846,15 +855,8 @@ export interface ICloneContext {
 interface IObjectLookupEntry {
     formerObject: any;
     presentObject: any;
-    propertyInfos: Map<string, IPropertyInfo>;
+    propertyKeys: Set<string>;
     diff: any;
-}
-
-interface IPropertyInfo {
-    name: string;
-    enumerable: boolean;
-    writable: boolean;
-    configurable: boolean;
 }
 
 class PropertyDiffImpl {
@@ -867,67 +869,57 @@ class PropertyDiffImpl {
     constructor(
         $isChanged: boolean,
         isDirty: (diff: any) => boolean,
-        unwrap: (era: Era, diff: any, referenceMap: Map<any, any>) => any,
+        unwrap: (era: Era, diff: any) => any,
         $value: any,
         $formerValue?: any) {
         this.$isChanged = $isChanged;
         this.$value = $value;
         this.$formerValue = $formerValue;
         this.$isDirty = () => isDirty(this);
-        this.$unwrap = (era: Era) => unwrap(era, this, new Map());
+        this.$unwrap = (era: Era) => unwrap(era, this);
     }
 }
 
-const internalIsCreatedSymbol: unique symbol = Symbol.for("internalIsCreatedSymbol");
-const internalIsDeletedSymbol: unique symbol = Symbol.for("internalIsDeletedSymbol");
-const internalIsChangedSymbol: unique symbol = Symbol.for("internalIsChangedSymbol");
-const internalIsDirtySymbol: unique symbol = Symbol.for("internalIsDirtySymbol");
-const internalUnwrapSymbol: unique symbol = Symbol.for("internalUnwrapSymbol");
+const $isCreatedSymbol: unique symbol = Symbol.for("internalIsCreatedSymbol");
+const $isDeletedSymbol: unique symbol = Symbol.for("internalIsDeletedSymbol");
+const $isChangedSymbol: unique symbol = Symbol.for("internalIsChangedSymbol");
+const $isDirtySymbol: unique symbol = Symbol.for("internalIsDirtySymbol");
+const $unwrapSymbol: unique symbol = Symbol.for("internalUnwrapSymbol");
 class ObjectDiffImpl {
     public [objectIdSymbol]: string = undefined!;
 
-    private [internalIsCreatedSymbol]: boolean;
-    private [internalIsDeletedSymbol]: boolean;
-    private [internalIsChangedSymbol]: boolean;
-    private [internalIsDirtySymbol]: (diff: any) => boolean;
-    private [internalUnwrapSymbol]: (era: Era, diff: any, referenceMap: Map<any, any>) => any;
+    // internal
+    public [$isCreatedSymbol]: boolean = false;
+    public [$isDeletedSymbol]: boolean = false;
+    public [$isChangedSymbol]: boolean = false;
+    // internal
 
-    // tslint:disable-next-line: variable-name => we carry a private ref to parent change checker for performance reasons
-    constructor(
-        $isCreated: boolean,
-        $isDeleted: boolean,
-        $isChanged: boolean,
-        $isDirty: (diff: any) => boolean,
-        $unwrap: (era: Era, diff: any) => any) {
-        this[internalIsCreatedSymbol] = $isCreated;
-        this[internalIsDeletedSymbol] = $isDeleted;
-        this[internalIsChangedSymbol] = $isChanged;
-        this[internalIsDirtySymbol] = $isDirty;
-        this[internalUnwrapSymbol] = $unwrap;
+    private [$isDirtySymbol]: (diff: any) => boolean;
+    private [$unwrapSymbol]: (era: Era, diff: any, referenceMap: Map<any, any>) => any;
+
+    constructor($isDirty: (diff: any) => boolean, $unwrap: (era: Era, diff: any) => any) {
+        this[$isDirtySymbol] = $isDirty;
+        this[$unwrapSymbol] = $unwrap;
     }
 
     public get $isCreated(): boolean {
-        return this[internalIsCreatedSymbol];
+        return this[$isCreatedSymbol];
     }
 
     public get $isDeleted(): boolean {
-        return this[internalIsDeletedSymbol];
+        return this[$isDeletedSymbol];
     }
 
     public get $isChanged(): boolean {
-        return this[internalIsChangedSymbol];
-    }
-
-    public set $isChanged(value: boolean) {
-        this[internalIsChangedSymbol] = value;
+        return this[$isChangedSymbol];
     }
 
     public $isDirty(): boolean {
-        return this[internalIsDirtySymbol](this);
+        return this[$isDirtySymbol](this);
     }
 
     public $unwrap(era: Era = Era.Present): boolean {
-        return this[internalUnwrapSymbol](era, this, new Map());
+        return this[$unwrapSymbol](era, this, new Map());
     }
 
     public get $state(): State {
@@ -944,32 +936,25 @@ class ArrayDiffImpl {
     public $inserted: any[] = [];
     public $deleted: any[] = [];
     public $other: any[] = [];
-    public $isCreated: boolean;
-    public $isDeleted: boolean;
+    public $isCreated: boolean = false;
+    public $isDeleted: boolean = false;
     public $isChanged: boolean = false;
 
-    private [internalIsDirtySymbol]: (diff: any) => boolean;
-    private [internalUnwrapSymbol]: (era: Era, diff: any) => any;
+    private [$isDirtySymbol]: (diff: any) => boolean;
+    private [$unwrapSymbol]: (era: Era, diff: any) => any;
 
     // tslint:disable-next-line: variable-name => we carry a private ref to parent change checker for performance reasons
-    constructor($isCreated: boolean,
-        $isDeleted: boolean,
-        $isChanged: boolean,
-        $isDirty: (diff: any) => boolean,
-        $unwrap: (era: Era, diff: any) => any) {
-        this.$isCreated = $isCreated;
-        this.$isDeleted = $isDeleted;
-        this.$isChanged = $isChanged;
-        this[internalIsDirtySymbol] = $isDirty;
-        this[internalUnwrapSymbol] = $unwrap;
+    constructor($isDirty: (diff: any) => boolean, $unwrap: (era: Era, diff: any) => any) {
+        this[$isDirtySymbol] = $isDirty;
+        this[$unwrapSymbol] = $unwrap;
     }
 
     public $isDirty(): boolean {
-        return this[internalIsDirtySymbol](this);
+        return this[$isDirtySymbol](this);
     }
 
     public $unwrap(era: Era = Era.Present): boolean {
-        return this[internalUnwrapSymbol](era, this);
+        return this[$unwrapSymbol](era, this);
     }
 
     public get $state(): State {
