@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2019-05-14
+### Changed
+- Property descriptors, setters, and getters (as well as similar metadata-like features) are no more duplicated. For example, if an object is marked read-only using a property descriptor, it will be read-write in the duplicate, since that's the default condition. This has changed because it produces more **consistent** results if it comes to serialization (all properties are visible to e.g. JSON.stringify). Previously the metadata was preserved, but the properties got merged on top of the prototype chain (reconstructing the prototype chain is way to expensive). This meant enumerable properties at level two were now visible to JSON.stringify but none enumerable not. Now all properties are just visible. If necessary, we can simply introduce a mechanism to describe **which** properties should be resolved and diffed.
+- The method 'withPlugin' was renamed to 'addPlugin'
+### Added
+- Add method 'removePlugin'
+
 ## [1.0.4] - 2019-03-15
 ### Fixed
 - Improve performance of "createDiff" by ~30%

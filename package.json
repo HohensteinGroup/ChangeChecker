@@ -1,6 +1,6 @@
 {
   "name": "change-checker",
-  "version": "1.0.4",
+  "version": "2.0.0",
   "description": "Utility for creating generic deep typed diffs to track changes between lifecycles of objects.",
   "keywords": [
     "change",
@@ -33,8 +33,7 @@
     "tslint-fix": "tslint -c tslint.json -t verbose --force 'src/**/*.ts' --fix",
     "build": "yarn run clean && node ./node_modules/typescript/bin/tsc --project tsconfig.es5.json && node ./node_modules/typescript/bin/tsc --project tsconfig.es6.json && webpack --config build/webpack.config.js",
     "test": "mocha -r ts-node/register test/**/*.spec.ts",
-    "testperf": "mocha -r ts-node/register test/**/*.spec-perf.ts",
-    "postinstall": "code -r CHANGELOG.md"
+    "testperf": "mocha -r ts-node/register test/**/*.spec-perf.ts"
   },
   "repository": "https://github.com/HohensteinGroup/ChangeChecker.git",
   "author": "Maxim Brunnmeier <m.brunnmeier@hohenstein.de>",
