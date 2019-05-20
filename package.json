@@ -1,6 +1,6 @@
 {
   "name": "change-checker",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Utility for creating generic deep typed diffs to track changes between lifecycles of objects.",
   "keywords": [
     "change",

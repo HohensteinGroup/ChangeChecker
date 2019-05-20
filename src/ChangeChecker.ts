@@ -295,6 +295,9 @@ export class ChangeChecker {
         }
         else {
             if (lookupEntry.formerObject) {
+                if (lookupEntry.formerObject !== formerArray) {
+                    throw new Error(`The former model contains two different objects with the same objectId (${lookupKey}). Did you mix partial snapshots containing the same object at different places?`);
+                }
                 // if the object is already set, it must have already been processed and we can stop here (circular reference protection)
                 return;
             }
@@ -330,6 +333,9 @@ export class ChangeChecker {
         }
         else {
             if (lookupEntry.formerObject) {
+                if (lookupEntry.formerObject !== formerObject) {
+                    throw new Error(`The former model contains two different objects with the same objectId (${lookupKey}). Did you mix partial snapshots containing the same object at different places?`);
+                }
                 return;
             }
             lookupEntry.formerObject = formerObject;
