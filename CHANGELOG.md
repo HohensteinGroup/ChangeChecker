@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2019-12-06
+### Added
+- Add '$all' property to array diff which returns $deleted, $inserted and $other concatenated.
+
 ## [2.0.1] - 2019-05-20
 ### Changed
 - 'createDiff' throws an error in case the former model contains two different objects (references are not equal) with the same objectId. This can happen if user mix partial snapshots containing the same object at different places.

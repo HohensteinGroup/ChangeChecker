@@ -959,6 +959,10 @@ class ArrayDiffImpl {
         return this[$isDirtySymbol](this);
     }
 
+    public get $all(): any[] {
+        return [...this.$inserted, ...this.$deleted, ...this.$other];
+    }
+
     public $unwrap(era: Era = Era.Present): boolean {
         return this[$unwrapSymbol](era, this);
     }

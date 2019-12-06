@@ -25,9 +25,10 @@ export interface IChangedProperty<T> {
 }
 
 export interface IArrayDiff<T> {
-    readonly $deleted: Array<ArrayDiffEntry<T>>;
     readonly $inserted: Array<ArrayDiffEntry<T>>;
+    readonly $deleted: Array<ArrayDiffEntry<T>>;
     readonly $other: Array<ArrayDiffEntry<T>>;
+    readonly $all: Array<ArrayDiffEntry<T>>;
     readonly $state: State;
     readonly $isCreated: boolean;
     readonly $isDeleted: boolean;
