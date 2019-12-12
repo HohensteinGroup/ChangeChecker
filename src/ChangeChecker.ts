@@ -57,6 +57,7 @@ export class ChangeChecker {
             throw new Error("Parameter 'snapshot' and parameter 'currentModel' have to share the same root ('objectId' differs or may not present).");
         }
 
+        this.globalLookup.clear();
         return this.createDiffInternal(snapshot, currentModel);
     }
 
@@ -76,9 +77,6 @@ export class ChangeChecker {
         }
 
         const result = globalLookup.get(formerObject[objectIdSymbol])!.diff;
-
-        this.globalLookup.clear();
-
         return result;
     }
 
@@ -460,6 +458,7 @@ export class ChangeChecker {
             if (plugin.clone && plugin.isMatch(any)) {
                 const clone = plugin.clone({ clone: (x) => this.clone(x, referenceMap) }, any);
                 clone[objectIdSymbol] = any[objectIdSymbol];
+                referenceMap.set(any, clone);
                 return clone;
             }
         }
