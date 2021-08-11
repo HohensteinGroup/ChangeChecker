@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2021-08-11
+### Added
+- `ChangeCheckerError` and `ChangeCheckerObjectConflictError`
+  - `ChangeCheckerObjectConflictError` will be thrown in case the model contains two different objects (references are not equal) with the same objectId and contains the following additional information:
+    - source ("FormerModel" or "PresentModel")
+    - objectId
+    - conflictingObjectLeftPath (an array of strings and numbers describing the exact path)
+    - conflictingObjectLeft
+    - conflictingObjectRightPath (an array of strings and numbers describing the exact path)
+    - conflictingObjectRight;
+
 ## [2.1.1] - 2019-12-12
 ### Fixed
 - Fix a 'takeSnapshot' issue that leads to duplicate copies of the same object if a "reference like plugin" creates the copy of the original instance. 

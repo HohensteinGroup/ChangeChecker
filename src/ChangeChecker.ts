@@ -1,4 +1,5 @@
 import { ObjectDiff, IArrayDiff, IChangedProperty, IUnchangedProperty, ValueLike, ValueType, Era, PropertyDiff, State } from "./DiffTypes";
+import { ChangeCheckerObjectConflictError } from "./Errors";
 
 export const objectIdSymbol: unique symbol = Symbol.for("objectId");
 
@@ -257,27 +258,64 @@ export class ChangeChecker {
         //     propertyKeys: Set<string>; => all propertyKeys of the two objects
         //     diff: any; => the ObjectDiff or ArrayDiff
         // }
-        this.buildFormerLookupTree(formerObject, this.globalLookup);
-        this.buildPresentLookupTree(presentObject, this.globalLookup);
+        let result = this.buildFormerLookupTree(formerObject, this.globalLookup);
+        if (result?.hasConflict) {
+            const conflictingObjectRightPath = result.conflictingObjectRightPath.reverse();
+            const conflictingObjectLeftPath: Array<string | number> = [];
+            this.findPath(formerObject, result.conflictingObjectLeft, conflictingObjectLeftPath, new Set());
+            conflictingObjectLeftPath.reverse();
+
+            throw new ChangeCheckerObjectConflictError(
+                `The former model contains two different objects with the same objectId (${result.objectId}). ` +
+                `Did you mix partial snapshots containing the same object at different places? 1st Path: ${this.formatPath(conflictingObjectLeftPath)}, 2nd Path: ${this.formatPath(conflictingObjectRightPath)}`,
+                result.source,
+                result.objectId,
+                conflictingObjectLeftPath,
+                result.conflictingObjectLeft,
+                conflictingObjectRightPath,
+                result.conflictingObjectRight
+            );
+        }
+
+        result = this.buildPresentLookupTree(presentObject, this.globalLookup);
+        if (result?.hasConflict) {
+            const conflictingObjectRightPath = result.conflictingObjectRightPath.reverse();
+            const conflictingObjectLeftPath: Array<string | number> = [];
+            this.findPath(presentObject, result.conflictingObjectLeft, conflictingObjectLeftPath, new Set());
+            conflictingObjectLeftPath.reverse();
+
+            throw new ChangeCheckerObjectConflictError(
+                `The present model contains two different objects with the same objectId (${result.objectId}). ` +
+                `Did you mix partial snapshots containing the same object at different places? 1st Path: ${this.formatPath(conflictingObjectLeftPath)}, 2nd Path: ${this.formatPath(conflictingObjectRightPath)}`,
+                result.source,
+                result.objectId,
+                conflictingObjectLeftPath,
+                result.conflictingObjectLeft,
+                conflictingObjectRightPath,
+                result.conflictingObjectRight
+            );
+        }
+
         return this.globalLookup;
     }
 
-    private buildFormerLookupTree(former: any, globalLookup: Map<any, IObjectLookupEntry>): void {
+    private buildFormerLookupTree(former: any, globalLookup: Map<any, IObjectLookupEntry>): ILookupBuilderConflictResult | undefined {
         if (Array.isArray(former)) {
-            this.buildFormerArrayLookupTree(former, globalLookup);
-            return;
+            return this.buildFormerArrayLookupTree(former, globalLookup);
         }
 
         if (this.isObject(former)) {
             if (this.isValueLike(former)) {
-                return;
+                return undefined;
             }
 
-            this.buildFormerObjectLookupTree(former, globalLookup);
+            return this.buildFormerObjectLookupTree(former, globalLookup);
         }
+
+        return undefined;
     }
 
-    private buildFormerArrayLookupTree(formerArray: any[], globalLookup: Map<any, IObjectLookupEntry>): void {
+    private buildFormerArrayLookupTree(formerArray: any[], globalLookup: Map<any, IObjectLookupEntry>): ILookupBuilderConflictResult | undefined {
         const lookupKey = (formerArray as any)[objectIdSymbol];
 
         let lookupEntry: IObjectLookupEntry | undefined = globalLookup.get(lookupKey);
@@ -294,8 +332,16 @@ export class ChangeChecker {
         else {
             if (lookupEntry.formerObject) {
                 if (lookupEntry.formerObject !== formerArray) {
-                    throw new Error(`The former model contains two different objects with the same objectId (${lookupKey}). Did you mix partial snapshots containing the same object at different places?`);
+                    return {
+                        hasConflict: true,
+                        source: "FormerModel",
+                        objectId: lookupKey,
+                        conflictingObjectLeft: lookupEntry.formerObject,
+                        conflictingObjectRight: formerArray,
+                        conflictingObjectRightPath: []
+                    };
                 }
+
                 // if the object is already set, it must have already been processed and we can stop here (circular reference protection)
                 return;
             }
@@ -303,12 +349,18 @@ export class ChangeChecker {
             lookupEntry.formerObject = formerArray;
         }
 
-        for (const item of formerArray) {
-            this.buildFormerLookupTree(item, globalLookup);
+        for (let i = 0; i < formerArray.length; i++) {
+            const result = this.buildFormerLookupTree(formerArray[i], globalLookup);
+            if (result?.hasConflict) {
+                result.conflictingObjectRightPath.push(i);
+                return result;
+            }
         }
+
+        return undefined;
     }
 
-    private buildFormerObjectLookupTree(formerObject: any, globalLookup: Map<any, IObjectLookupEntry>): void {
+    private buildFormerObjectLookupTree(formerObject: any, globalLookup: Map<any, IObjectLookupEntry>): ILookupBuilderConflictResult | undefined {
         const lookupKey = (formerObject as any)[objectIdSymbol];
 
         let lookupEntry: IObjectLookupEntry | undefined = globalLookup.get(lookupKey);
@@ -326,30 +378,49 @@ export class ChangeChecker {
 
             for (const propertyKey of propertyKeys) {
                 const property = formerObject[propertyKey];
-                this.buildFormerLookupTree(property, globalLookup);
+                const result = this.buildFormerLookupTree(property, globalLookup);
+                if (result?.hasConflict) {
+                    result.conflictingObjectRightPath.push(propertyKey);
+                    return result;
+                }
             }
         }
         else {
             if (lookupEntry.formerObject) {
                 if (lookupEntry.formerObject !== formerObject) {
-                    throw new Error(`The former model contains two different objects with the same objectId (${lookupKey}). Did you mix partial snapshots containing the same object at different places?`);
+                    return {
+                        hasConflict: true,
+                        source: "FormerModel",
+                        objectId: lookupKey,
+                        conflictingObjectLeft: lookupEntry.formerObject,
+                        conflictingObjectRight: formerObject,
+                        conflictingObjectRightPath: []
+                    };
                 }
+
+                // if the object is already set, it must have already been processed and we can stop here (circular reference protection)
                 return;
             }
+
             lookupEntry.formerObject = formerObject;
 
             for (const propertyKey of this.getPropertyKeys(formerObject)) {
                 lookupEntry.propertyKeys.add(propertyKey);
                 const property = formerObject[propertyKey];
-                this.buildFormerLookupTree(property, globalLookup);
+                const result = this.buildFormerLookupTree(property, globalLookup);
+                if (result?.hasConflict) {
+                    result.conflictingObjectRightPath.push(propertyKey);
+                    return result;
+                }
             }
         }
+
+        return undefined;
     }
 
-    private buildPresentLookupTree(present: any, globalLookup: Map<any, IObjectLookupEntry>): void {
+    private buildPresentLookupTree(present: any, globalLookup: Map<any, IObjectLookupEntry>): ILookupBuilderConflictResult | undefined {
         if (Array.isArray(present)) {
-            this.buildPresentArrayLookupTree(present, globalLookup);
-            return;
+            return this.buildPresentArrayLookupTree(present, globalLookup);
         }
 
         if (this.isObject(present)) {
@@ -357,11 +428,13 @@ export class ChangeChecker {
                 return;
             }
 
-            this.buildPresentObjectLookupTree(present, globalLookup);
+            return this.buildPresentObjectLookupTree(present, globalLookup);
         }
+
+        return undefined;
     }
 
-    private buildPresentArrayLookupTree(presentArray: any[], globalLookup: Map<any, IObjectLookupEntry>): void {
+    private buildPresentArrayLookupTree(presentArray: any[], globalLookup: Map<any, IObjectLookupEntry>): ILookupBuilderConflictResult | undefined {
         // not all arrays of the present model must have an objectId (newly created objects) so we can use the object itself as fallback key for the lookup
         const lookupKey = (presentArray as any)[objectIdSymbol] || presentArray;
 
@@ -379,8 +452,16 @@ export class ChangeChecker {
         else {
             if (lookupEntry.presentObject) {
                 if (lookupEntry.presentObject !== presentArray) {
-                    throw new Error(`The present model contains two different objects with the same objectId (${lookupKey}). Did you mix partial snapshots containing the same object at different places?`);
+                    return {
+                        hasConflict: true,
+                        source: "PresentModel",
+                        objectId: lookupKey,
+                        conflictingObjectLeft: lookupEntry.presentObject,
+                        conflictingObjectRight: presentArray,
+                        conflictingObjectRightPath: []
+                    };
                 }
+
                 // if the object is already set, it must have already been processed and we can stop here (circular reference protection)
                 return;
             }
@@ -388,12 +469,18 @@ export class ChangeChecker {
             lookupEntry.presentObject = presentArray;
         }
 
-        for (const item of presentArray) {
-            this.buildPresentLookupTree(item, globalLookup);
+        for (let i = 0; i < presentArray.length; i++) {
+            const result = this.buildPresentLookupTree(presentArray[i], globalLookup);
+            if (result?.hasConflict) {
+                result.conflictingObjectRightPath.push(i);
+                return result;
+            }
         }
+
+        return undefined;
     }
 
-    private buildPresentObjectLookupTree(presentObject: any, globalLookup: Map<any, IObjectLookupEntry>): void {
+    private buildPresentObjectLookupTree(presentObject: any, globalLookup: Map<any, IObjectLookupEntry>): ILookupBuilderConflictResult | undefined {
         // not all objects of the present model must have an objectId (newly created objects) so we can use the object itself as fallback key for the lookup
         const lookupKey = (presentObject as any)[objectIdSymbol] || presentObject;
 
@@ -412,26 +499,45 @@ export class ChangeChecker {
 
             for (const propertyKey of propertyKeys) {
                 const property = presentObject[propertyKey];
-                this.buildPresentLookupTree(property, globalLookup);
+                const result = this.buildPresentLookupTree(property, globalLookup);
+                if (result?.hasConflict) {
+                    result.conflictingObjectRightPath.push(propertyKey);
+                    return result;
+                }
             }
         }
         else {
             if (lookupEntry.presentObject) {
                 if (lookupEntry.presentObject !== presentObject) {
-                    throw new Error(`The present model contains two different objects with the same objectId (${lookupKey}). Did you mix partial snapshots containing the same object at different places?`);
+                    return {
+                        hasConflict: true,
+                        source: "PresentModel",
+                        objectId: lookupKey,
+                        conflictingObjectLeft: lookupEntry.presentObject,
+                        conflictingObjectRight: presentObject,
+                        conflictingObjectRightPath: []
+                    };
                 }
+
                 // if the object is already set, it must have already been processed and we can stop here (circular reference protection)
                 return;
             }
+
             lookupEntry.presentObject = presentObject;
 
             for (const propertyKey of this.getPropertyKeys(presentObject)) {
                 // we have to add all propertyKeys again because the present object may have other propertyKeys as the former object
                 lookupEntry.propertyKeys.add(propertyKey);
                 const property = presentObject[propertyKey];
-                this.buildPresentLookupTree(property, globalLookup);
+                const result = this.buildPresentLookupTree(property, globalLookup);
+                if (result?.hasConflict) {
+                    result.conflictingObjectRightPath.push(propertyKey);
+                    return result;
+                }
             }
         }
+
+        return undefined;
     }
 
     private clone(any: any, referenceMap: Map<any, any>): any {
@@ -612,7 +718,6 @@ export class ChangeChecker {
 
         for (let prototype = obj; prototype && prototype !== Object.prototype; prototype = Object.getPrototypeOf(prototype)) {
             for (const name of Object.getOwnPropertyNames(prototype)) {
-
                 // ignore constructor, system-defined and set only properties
                 if ((name[0] === "_" && name[1] === "_") || name === "constructor") {
                     continue;
@@ -810,6 +915,62 @@ export class ChangeChecker {
     private isReference(node: any): node is { [objectIdSymbol]: string; } {
         return this.isObject(node) && node[objectIdSymbol] !== undefined;
     }
+
+    private findPath(haystack: any, needle: object, path: Array<string | number>, seenObjects: Set<any>): boolean {
+        if (seenObjects.has(haystack)) {
+            return false;
+        }
+
+        seenObjects.add(haystack);
+
+        if (haystack === needle) {
+            return true;
+        }
+
+        if (Array.isArray(haystack)) {
+            for (let i = 0; i < haystack.length; i++) {
+                if (this.findPath(haystack[i], needle, path, seenObjects)) {
+                    path.push(i);
+                    return true;
+                }
+            }
+        }
+        else if (this.isObject(haystack)) {
+            if (this.isValueLike(haystack)) {
+                return false;
+            }
+
+            for (const propertyKey of this.getPropertyKeys(haystack)) {
+                if (this.findPath(haystack[propertyKey], needle, path, seenObjects)) {
+                    path.push(propertyKey);
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private formatPath(path: Array<string | number>): string {
+        let result = "";
+        for (let i = 0; i < path.length; i++) {
+            const part = path[i];
+
+            if (typeof part === "number") {
+                result += "[" + part + "]";
+                continue;
+            }
+
+            if (i === 0) {
+                result += part;
+            }
+            else {
+                result += "." + part;
+            }
+        }
+
+        return result;
+    }
 }
 
 export function isArrayDiff<T>(node: IArrayDiff<T> | any): node is IArrayDiff<T> {
@@ -972,4 +1133,13 @@ class ArrayDiffImpl {
                 : this.$isDeleted ? State.Deleted
                     : State.Unchanged;
     }
+}
+
+interface ILookupBuilderConflictResult {
+    hasConflict: true;
+    source: "FormerModel" | "PresentModel";
+    objectId: string;
+    conflictingObjectLeft: object;
+    conflictingObjectRightPath: Array<string | number>;
+    conflictingObjectRight: object;
 }
