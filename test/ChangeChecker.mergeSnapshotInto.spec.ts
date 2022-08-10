@@ -30,13 +30,13 @@ describe("ChangeChecker", () => {
             });
 
             it(`should NOT throw if we assign the new object using mergeSnapshotInto`, () => {
-                changeChecker.mergeSnapshotInto(plainJsObject, plainJsObject, x => x.target.objectPropertyA = snapshot.objectPropertyA);
+                changeChecker.mergeSnapshotInto(plainJsObject, x => x.target.objectPropertyA = snapshot.objectPropertyA);
 
                 assert.doesNotThrow(() => changeChecker.createDiff(plainJsObject, snapshot));
             });
 
             it(`and all references to the inner object should have been updated to the new object`, () => {
-                changeChecker.mergeSnapshotInto(plainJsObject, plainJsObject, x => x.target.objectPropertyA = snapshot.objectPropertyA)
+                changeChecker.mergeSnapshotInto(plainJsObject, x => x.target.objectPropertyA = snapshot.objectPropertyA)
 
                 assert.strictEqual(plainJsObject.objectPropertyA, snapshot.objectPropertyA)
                 assert.strictEqual(plainJsObject.objectPropertyB, snapshot.objectPropertyA)

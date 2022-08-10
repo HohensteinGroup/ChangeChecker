@@ -62,7 +62,11 @@ export class ChangeChecker {
         return this.createDiffInternal(snapshot, currentModel);
     }
 
-    public mergeSnapshotInto<TModel extends object, TModelPartToUpdate extends object>(model: TModel, modelPartToUpdate: TModelPartToUpdate, applyChanges: (merger: ISnapshotMerger<TModelPartToUpdate>) => void): void {
+    public mergeSnapshotInto<TModel extends object>(model: TModel, applyChanges: (merger: ISnapshotMerger<TModel>) => void): void {
+        this.mergeSnapshotIntoPart(model, model, applyChanges);
+    }
+
+    public mergeSnapshotIntoPart<TModel extends object, TModelPartToUpdate extends object>(model: TModel, modelPartToUpdate: TModelPartToUpdate, applyChanges: (merger: ISnapshotMerger<TModelPartToUpdate>) => void): void {
         const proxify = <T extends object>(object: T) => {
             return new Proxy(object, {
                 set: (target, propertyName, newValueOrObject): boolean => {
