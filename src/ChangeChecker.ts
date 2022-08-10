@@ -1,4 +1,4 @@
-import { ObjectDiff, IArrayDiff, IChangedProperty, IUnchangedProperty, ValueLike, ValueType, Era, PropertyDiff, State } from "./DiffTypes";
+import { Era, IArrayDiff, IChangedProperty, IUnchangedProperty, ObjectDiff, PropertyDiff, State, ValueLike, ValueType } from "./DiffTypes";
 import { ChangeCheckerObjectConflictError } from "./Errors";
 
 export const objectIdSymbol: unique symbol = Symbol.for("objectId");
@@ -62,8 +62,43 @@ export class ChangeChecker {
         return this.createDiffInternal(snapshot, currentModel);
     }
 
+    public mergeSnapshotInto<TModel extends object, TModelPartToUpdate extends object>(model: TModel, modelPartToUpdate: TModelPartToUpdate, applyChanges: (merger: ISnapshotMerger<TModelPartToUpdate>) => void): void {
+        const proxify = <T extends object>(object: T) => {
+            return new Proxy(object, {
+                set: (target, propertyName, newValueOrObject): boolean => {
+                    (target as any)[propertyName] = newValueOrObject;
+
+                    const isObject = !this.isValueType(newValueOrObject) && !this.isValueLike(newValueOrObject);
+                    if (isObject) {
+                        this.mergeSnapshotIntoModel(model, newValueOrObject);
+                    }
+
+                    return true;
+                },
+                get: (target, propertyName): any => {
+                    const propertyValue = (target as any)[propertyName];
+                    const isObject = !this.isValueType(propertyValue) && !this.isValueLike(propertyValue);
+                    if (isObject) {
+                        return proxify(propertyValue);
+                    }
+
+                    return propertyValue;
+                }
+            });
+        };
+
+        const snapshotMerger: ISnapshotMerger<TModelPartToUpdate> = {
+            target: modelPartToUpdate
+        };
+
+        const proxyMembrane = proxify(snapshotMerger);
+        applyChanges(proxyMembrane);
+    }
+
     private isDirtyArrow = (diff: any) => this.isDirtyInternal(diff, new Set());
-    private unwrapArrow = (era: Era, diff: any) => era === Era.Present ? this.unwrapPresentInternal(diff, new Map()) : this.unwrapFormerInternal(diff, new Map());
+    private unwrapArrow = (era: Era, diff: any) => era === Era.Present
+        ? this.unwrapPresentInternal(diff, new Map())
+        : this.unwrapFormerInternal(diff, new Map())
 
     private createDiffInternal(formerObject: any, presentObject: any): any {
         const globalLookup = this.buildLookupTree(formerObject, presentObject);
@@ -546,7 +581,11 @@ export class ChangeChecker {
             return circularDependency;
         }
 
-        if (any == undefined || this.isValueType(any)) {
+        if (any == undefined) {
+            return any;
+        }
+
+        if (this.isValueType(any)) {
             return any;
         }
 
@@ -625,11 +664,115 @@ export class ChangeChecker {
         return clone;
     }
 
-    private assignObjectIds(obj: any, referenceSet: Set<any>): void {
-        if (referenceSet.has(obj)) {
+    private mergeSnapshotIntoModel(model: object, snapshot: object): void {
+        const objectsByObjectId = this.collectObjectsWithObjectId(snapshot, new Map(), new Set());
+        if (objectsByObjectId.size === 0) {
             return;
         }
-        referenceSet.add(obj);
+
+        this.replaceObjectsWithSameObjectIdEverywhere(model, objectsByObjectId, new Set());
+    }
+
+    private collectObjectsWithObjectId(any: any, objectCollection: Map<string, object>, seenObjects: Set<any>): Map<string, object> {
+        if (any == undefined) {
+            return objectCollection;
+        }
+
+        if (this.isValueType(any)) {
+            return objectCollection;
+        }
+
+        if (this.isValueLike(any)) {
+            return objectCollection;
+        }
+
+        if (typeof any === "function") {
+            return objectCollection;
+        }
+
+        if (seenObjects.has(any)) {
+            return objectCollection;
+        }
+
+        seenObjects.add(any);
+
+        if (this.isReference(any)) {
+            objectCollection.set(any[objectIdSymbol], any);
+        }
+
+        if (Array.isArray(any)) {
+            for (const entry of any) {
+                this.collectObjectsWithObjectId(entry, objectCollection, seenObjects);
+            }
+        }
+        else {
+            for (const propertyKey of this.getPropertyKeys(any)) {
+                const property = any[propertyKey];
+                this.collectObjectsWithObjectId(property, objectCollection, seenObjects);
+            }
+        }
+
+        return objectCollection;
+    }
+
+    private replaceObjectsWithSameObjectIdEverywhere(any: any, objectsByObjectId: Map<string, object>, seenObjects: Set<any>): void {
+        if (any == undefined) {
+            return;
+        }
+
+        if (this.isValueType(any)) {
+            return;
+        }
+
+        if (this.isValueLike(any)) {
+            return;
+        }
+
+        if (typeof any === "function") {
+            return;
+        }
+
+        if (seenObjects.has(any)) {
+            return;
+        }
+
+        seenObjects.add(any);
+
+        if (Array.isArray(any)) {
+            for (let i = 0; i < any.length; i++) {
+                const entry = any[i];
+                if (this.isReference(entry) && objectsByObjectId.has(entry[objectIdSymbol])) {
+                    const newObject = objectsByObjectId.get(entry[objectIdSymbol]);
+
+                    // If we replace the old object with the new one we don't need to traverse the tree further since the new object should always be up to date.
+                    any[i] = newObject;
+                }
+                else {
+                    this.replaceObjectsWithSameObjectIdEverywhere(any[i], objectsByObjectId, seenObjects);
+                }
+            }
+        }
+        else {
+            for (const propertyKey of this.getPropertyKeys(any)) {
+                const property = any[propertyKey];
+                if (this.isReference(property) && objectsByObjectId.has(property[objectIdSymbol])) {
+                    const newObject = objectsByObjectId.get(property[objectIdSymbol]);
+
+                    // If we replace the old object with the new one we don't need to traverse the tree further since the new object should always be up to date.
+                    any[propertyKey] = newObject;
+                }
+                else {
+                    this.replaceObjectsWithSameObjectIdEverywhere(any[propertyKey], objectsByObjectId, seenObjects);
+                }
+            }
+        }
+    }
+
+    private assignObjectIds(obj: any, seenObjects: Set<any>): void {
+        if (seenObjects.has(obj)) {
+            return;
+        }
+        seenObjects.add(obj);
 
         if (obj[objectIdSymbol] == undefined) {
             obj[objectIdSymbol] = this.getNextObjectId().toString();
@@ -646,7 +789,7 @@ export class ChangeChecker {
                         continue;
                     }
 
-                    this.assignObjectIds(item, referenceSet);
+                    this.assignObjectIds(item, seenObjects);
                 }
             }
         }
@@ -662,7 +805,7 @@ export class ChangeChecker {
                         continue;
                     }
 
-                    this.assignObjectIds(value, referenceSet);
+                    this.assignObjectIds(value, seenObjects);
                 }
             }
         }
@@ -843,11 +986,11 @@ export class ChangeChecker {
         return diff;
     }
 
-    private isDirtyInternal(diff: any, referenceSet: Set<any>): boolean {
-        if (referenceSet.has(diff)) {
+    private isDirtyInternal(diff: any, seenObjects: Set<any>): boolean {
+        if (seenObjects.has(diff)) {
             return false;
         }
-        referenceSet.add(diff);
+        seenObjects.add(diff);
 
         if (isPropertyDiff(diff)) {
             if (diff.$isChanged) {
@@ -858,7 +1001,7 @@ export class ChangeChecker {
                 return false;
             }
 
-            if (this.isDirtyInternal(diff.$value, referenceSet)) {
+            if (this.isDirtyInternal(diff.$value, seenObjects)) {
                 return true;
             }
         }
@@ -870,7 +1013,7 @@ export class ChangeChecker {
 
             for (const key of this.getPropertyKeys(diff)) {
                 const property = (diff as any)[key];
-                if (this.isDirtyInternal(property, referenceSet)) {
+                if (this.isDirtyInternal(property, seenObjects)) {
                     return true;
                 }
             }
@@ -888,7 +1031,7 @@ export class ChangeChecker {
                     continue;
                 }
 
-                if (this.isObject(item) && this.isDirtyInternal(item, referenceSet)) {
+                if (this.isObject(item) && this.isDirtyInternal(item, seenObjects)) {
                     return true;
                 }
             }
@@ -1157,4 +1300,8 @@ interface ILookupBuilderConflictResult {
     conflictingObjectLeft: object;
     conflictingObjectRightPath: Array<string | number>;
     conflictingObjectRight: object;
+}
+
+interface ISnapshotMerger<T> {
+    target: T;
 }
