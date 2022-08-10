@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0-beta.1] - 2022-08-10
+### Added
+- `ObjectDiff<T>.[Symbol.iterator](): Iterator<{ propertyName, propertyDiff }>`.
+- `ChangeChecker.mergeSnapshotInto<TModel, TModelPartToUpdate>(model: TModel, modelPartToUpdate: TModelPartToUpdate, applyChanges: (modelPartToUpdate: { target: TModelPartToUpdate; } => void)) : void`
+  - `model` must be the model root
+  - `modelPartToUpdate` must be the part of the model you want to update using a snapshot or the part where you want to start accessing child members (part.foo.bar = "1")
+  - `applyChanges` must be a function with one argument `merger: { target: TModelPartToUpdate }` that applies the changes e.g. (`merger => merger.target.foo = bar`).
+  - The key functionality of the merge is to apply the changes made to the snapshot everywhere in the model.
+  - Example:
+    - `const car = { running: false }`
+    - `const allCars = [car]`
+    - `const model = { car, allCars }`
+    - `const snapshotCar = changeChecker.createSnapshot(model.car);`
+    - // give the snapshot e.g. to a dialog and mutate it
+    - `snapshotCar.running = true`
+    - // if the user confirms the changes the `snapshotCar` should be merged back into the `model` and the car should be `running == true` in `allCars` aswell.
+    - `changeChecker.mergeSnapshotInto(model, model.car, (merger) => merger.target = snapshotCar);`
+    - // `model.car === model.allCars` is true (reference to the same object)
+
 ## [2.2.0] - 2021-08-11
 ### Added
 - `ChangeCheckerError` and `ChangeCheckerObjectConflictError`
