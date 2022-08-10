@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0-beta.5] - 2022-08-10
+### Changed
+- Rename ChangeChecker.mergeSnapshotInto<TModel, TModelPartToUpdate>(...) to mergeSnapshotIntoPart
+### Added
+- ChangeChecker.mergeSnapshotInto<TModel>(...)
+  - Works the same as mergeSnapshotIntoPart but does not require a second argument since the model is the part to update in this case.
+
 ## [2.3.0-beta.4] - 2022-08-10
 ### Added
 - `ObjectDiff<T>.[Symbol.iterator](): Iterator<{ propertyName, propertyDiff }>`.
