@@ -1,16 +1,18 @@
 {
-  "compilerOptions": {    
-    "target": "es6",
-    "module": "commonjs",
-    "lib": [ "es5", "es2015" ],
-    "noEmit": false,
-    "sourceMap": true,
-    "outDir": "../tests-outdir",
-    "strict": true,
-    "moduleResolution": "node"
-  },
-  "include": [
-    "../src/**/*.ts",
-    "./**/*.ts"
-  ]
+    "compilerOptions": {
+        "target": "es6",
+        "module": "commonjs",
+        "lib": [
+            "ESNEXT"
+        ],
+        "noEmit": false,
+        "sourceMap": true,
+        "outDir": "../tests-outdir",
+        "strict": true,
+        "moduleResolution": "node"
+    },
+    "include": [
+        "../src/**/*.ts",
+        "./**/*.ts"
+    ]
 }

@@ -1,8 +1,10 @@
 {
-  "extends": "./tsconfig.base.json",
-  "compilerOptions": {
-    "target": "es6",                          /* Specify ECMAScript target version: 'ES3' (default), 'ES5', 'ES2015', 'ES2016', 'ES2017', or 'ESNEXT'. */
-    "lib": ["es6"]		                        /* Specify library files to be included in the compilation:  */,
-    "module": "commonjs"
-  }
+    "extends": "./tsconfig.base.json",
+    "compilerOptions": {
+        "target": "es6", /* Specify ECMAScript target version: 'ES3' (default), 'ES5', 'ES2015', 'ES2016', 'ES2017', or 'ESNEXT'. */
+        "lib": [
+            "ESNEXT"
+        ] /* Specify library files to be included in the compilation:  */,
+        "module": "commonjs"
+    }
 }
