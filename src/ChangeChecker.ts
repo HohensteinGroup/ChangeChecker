@@ -1051,7 +1051,7 @@ const $isDeletedSymbol: unique symbol = Symbol.for("internalIsDeletedSymbol");
 const $isChangedSymbol: unique symbol = Symbol.for("internalIsChangedSymbol");
 const $isDirtySymbol: unique symbol = Symbol.for("internalIsDirtySymbol");
 const $unwrapSymbol: unique symbol = Symbol.for("internalUnwrapSymbol");
-class ObjectDiffImpl {
+class ObjectDiffImpl implements Iterable<{ propertyName: string; propertyDiff: PropertyDiffImpl }> {
     public [objectIdSymbol]: string = undefined!;
 
     // internal
@@ -1093,6 +1093,21 @@ class ObjectDiffImpl {
             : this.$isCreated ? State.Created
                 : this.$isDeleted ? State.Deleted
                     : State.Unchanged;
+    }
+
+    public [Symbol.iterator](): Iterator<{ propertyName: string; propertyDiff: PropertyDiffImpl; }> {
+        let index = -1;
+        const propertyDiffs = Object.entries(this).filter((x) => isPropertyDiff(x[1])).map(x => ({ propertyName: x[0], propertyDiff: x[1] }));
+
+        return {
+            next: () => {
+                const entry = propertyDiffs[++index];
+                return {
+                    value: entry,
+                    done: !(index in propertyDiffs)
+                }
+            }
+        }
     }
 }
 

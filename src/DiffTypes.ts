@@ -49,6 +49,7 @@ export type ObjectDiff<T> = {
     readonly $isChanged: boolean;
     $isDirty(): boolean;
     $unwrap(era: Era): T;
+    [Symbol.iterator](): Iterator<{ propertyName: string; propertyDiff: PropertyDiff<Exclude<T[keyof T], Function>> }>;
 } & PropertiesDiffed<T>;
 
 export type PropertiesDiffed<T> = {
