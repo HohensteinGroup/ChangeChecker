@@ -4,12 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2023-06-14
+### Added
+- Comment the code to explain why certain things are done in a specific way.
+
 ## [2.3.0-beta.5] - 2022-08-10
 ### Changed
 - Rename ChangeChecker.mergeSnapshotInto<TModel, TModelPartToUpdate>(...) to mergeSnapshotIntoPart
 ### Added
 - ChangeChecker.mergeSnapshotInto<TModel>(...)
-  - Works the same as mergeSnapshotIntoPart but does not require a second argument since the model is the part to update in this case.
+  - Works the same as mergeSnapshotIntoPart but does not require the part to update argument since the model is the part to update in this case.
 
 ## [2.3.0-beta.4] - 2022-08-10
 ### Added
@@ -28,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `snapshotCar.running = true`
     - // if the user confirms the changes the `snapshotCar` should be merged back into the `model` and the car should be `running == true` in `allCars` aswell.
     - `changeChecker.mergeSnapshotInto(model, model.car, (merger) => merger.target = snapshotCar);`
-    - // `model.car === model.allCars` is true (reference to the same object)
+    - // `model.car === model.allCars[0]` is true (reference to the same object)
 
 ## [2.2.0] - 2021-08-11
 ### Added
