@@ -8,7 +8,7 @@ export class ChangeChecker {
     private referenceLikePlugins: Array<IReferenceLikePlugin<any>> = [];
     private valueLikePlugins: Array<IValueLikePlugin<any>> = [];
 
-    // to avoid v8 deoptimizations we use a global lookup map and not a new map that we pass around as parameter
+    // To avoid v8 deoptimizations we use a global lookup map and not a new map that we pass around as parameter.
     private globalLookup: Map<any, IObjectLookupEntry> = new Map();
 
     public addPlugin<T>(plugin: IReferenceLikePlugin<T> | IValueLikePlugin<T>): ChangeChecker {
@@ -47,7 +47,7 @@ export class ChangeChecker {
             throw new Error("The model must be an object.");
         }
 
-        // Everytime someone takes a snapshot we add objectids to the model to be able to compare it later against the clone (the snapshot).
+        // Everytime someone takes a snapshot we add objectId's to all objects in the model to be able to compare them later against the clone's objects (the snapshot).
         this.assignObjectIds(model, new Set());
         return this.clone(model, new Map()) as T;
     }
@@ -69,7 +69,7 @@ export class ChangeChecker {
     }
 
     // This method is used to merge a snapshot into a part of the model. This is done by using a proxy membrane.
-    // Everytime a property is set on the proxy membrane we check if the value is an object (with an objectid) and if so we replace the object everywhere in the target instead of just the one property the user is setting it to.
+    // Everytime a property is set on the proxy membrane we check if any value in the object graph is an object with an objectId and if so we replace the object everywhere in the target instead of just the one property the user is setting it to.
     public mergeSnapshotIntoPart<TModel extends object, TModelPartToUpdate extends object>(model: TModel, modelPartToUpdate: TModelPartToUpdate, applyChanges: (merger: ISnapshotMerger<TModelPartToUpdate>) => void): void {
         const proxify = <T extends object>(object: T) => {
             return new Proxy(object, {
@@ -113,7 +113,7 @@ export class ChangeChecker {
         // Build a lookup where each entry contains the (optional) former and (optional) present object, the property keys, and an instance of the diff object (ArrayDiff or ObjectDiff).
         const globalLookup = this.buildLookupTree(formerObject, presentObject);
 
-        // The we just loop over all entries in the lookup and forward the entry to the correct method to build the diff.
+        // Then we just loop over all entries in the lookup and forward the entry to the correct method to build the diff.
         for (const entry of globalLookup.values()) {
             if (Array.isArray(entry.formerObject || entry.presentObject)) {
                 this.bindArrayDiff(entry, globalLookup);
@@ -135,7 +135,7 @@ export class ChangeChecker {
         lookupEntry.diff[$isDeletedSymbol] = lookupEntry.presentObject === null;
 
         if (lookupEntry.formerObject) {
-            // The former object has always an object id so we assign the object id to the diff object so we can later on match the diff object with the former object or
+            // The former object has always an objectId so we assign the objectId to the diff object so we can later on match the diff object with the former object or
             // reconstruct the former object from the diff object (see unwrapFormerInternal).
             lookupEntry.diff[objectIdSymbol] = lookupEntry.formerObject[objectIdSymbol];
         }
@@ -163,14 +163,14 @@ export class ChangeChecker {
         // If the object the property is located on is not present in the present model we can just infer that the property was deleted with the object.
         if (lookupEntry.presentObject === null) {
             // Resolve the value (e.g. string, number, boolean, null, undefined etc.), value like (e.g. Date, RegExp etc.) or the diff object (ArrayDiff or ObjectDiff) using
-            // the object id of the former object (see resolveValueOrDiff).
+            // the objectId of the former object (see resolveValueOrDiff).
             const $formerValue = this.resolveValueOrDiff(formerValueOrReference, globalLookup);
             propertyDiff = new PropertyDiffImpl(false, this.isDirtyArrow, this.unwrapArrow, $formerValue);
         }
         // If the object the property is located on is not present in the former model we can just infer that the property was created with the object.
         else if (lookupEntry.formerObject === null) {
             // Resolve the value (e.g. string, number, boolean, null, undefined etc.), value like (e.g. Date, RegExp etc.) or the diff object (ArrayDiff or ObjectDiff) using
-            // the object id of the present object (see resolveValueOrDiff).
+            // the objectId of the present object (see resolveValueOrDiff).
             const $value = this.resolveValueOrDiff(presentValueOrReference, globalLookup);
             propertyDiff = new PropertyDiffImpl(false, this.isDirtyArrow, this.unwrapArrow, $value);
         }
@@ -204,7 +204,7 @@ export class ChangeChecker {
         lookupEntry.diff.$isDeleted = lookupEntry.presentObject === null;
 
         if (lookupEntry.formerObject) {
-            // The former array has always an object id so we assign the object id to the diff object so we can later on match the diff object with the former array or
+            // The former array has always an objectId so we assign the objectId to the diff object so we can later on match the diff object with the former array or
             // reconstruct the former array from the diff object (see unwrapFormerInternal).
             lookupEntry.diff[objectIdSymbol] = lookupEntry.formerObject[objectIdSymbol];
         }
@@ -228,10 +228,10 @@ export class ChangeChecker {
 
         // If both the former and present array are not null we need to check if items were added or removed.
         // This is quite complex to do in a performant way. For this reason we use arrays with two single entries to keep track of the occurrences of the items instead of
-        // an object because array access is faster than object access.
+        // an object because array access is faster than object property access.
         if (lookupEntry.formerObject && lookupEntry.presentObject) {
-            // This map holds all possible results as key. The inner arrays 1st index holds the occurrences of the former array and the 2nd index holds the occurrences of the present array.
 
+            // This map holds all possible results as key. The inner arrays 1st index holds the occurrences of the former array and the 2nd index holds the occurrences of the present array.
             // Map<value, [formerOccurrences, presentOccurrences]>
             const resultMap: Map<any, [any[], any[]]> = new Map();
 
@@ -269,7 +269,7 @@ export class ChangeChecker {
             }
 
             // Now the result map contains all items of the former and present array and the occurrences of the items in the former and present array.
-            // Example if the former array is [1, 2, 3, 4] and the present array is [1, 2, 2, 3, 5] the result map would look like this:
+            // Example: If the former array is [1, 2, 3, 4] and the present array is [1, 2, 2, 3, 5] the result map would look like this:
             // Map {
             //     1 => [ [ 1 ], [ 1 ] ],
             //     2 => [ [ 2 ], [ 2, 2 ] ],
@@ -291,24 +291,23 @@ export class ChangeChecker {
                 }
 
                 // The two arrays below will hold the occurrences of the same value or diff of the former and present array.
-                // Example if the former array is [1, 2, 3, 4] and the present array is [1, 2, 2, 3, 5] and wwe are in the second iteration of the result map the arrays will look like this:
+                // Example: If the former array is [1, 2, 3, 4] and the present array is [1, 2, 2, 3, 5] and we are in the second iteration of the result map the arrays will look like this:
                 // formerOccurrences = [2]
                 // presentOccurrences = [2, 2]
                 const formerOccurrences = entry[1][0];
                 const presentOccurrences = entry[1][1];
 
+                // Example: If the formerOccurrences array is [2] and the presentOccurrences array is [2, 2] the deleted, inserted and other array's will look like this:
+
                 // The deleted array will hold all items that were in the former array but not in the present array.
-                // Example if the former array is [1, 2, 3, 4] and the present array is [1, 2, 2, 3, 5] and wwe are in the second iteration of the result map the deleted array will look like this:
-                // deleted = [] because formerOccurrences.length - presentOccurrences.length = -1
+                // deleted = [] because formerOccurrences.length - presentOccurrences.length = -1 (and -1 is smaller than 0 so splice will return an empty array)
                 const deleted = formerOccurrences.splice(0, formerOccurrences.length - presentOccurrences.length);
 
                 // The inserted array will hold all items that were in the present array but not in the former array.
-                // Example if the former array is [1, 2, 3, 4] and the present array is [1, 2, 2, 3, 5] and wwe are in the second iteration of the result map the inserted array will look like this:
                 // inserted = [2] because presentOccurrences.length - formerOccurrences.length = 1
                 const inserted = presentOccurrences.splice(0, presentOccurrences.length - formerOccurrences.length);
 
                 // The other array will hold all items that were in both the former and present array.
-                // Example if the former array is [1, 2, 3, 4] and the present array is [1, 2, 2, 3, 5] and wwe are in the second iteration of the result map the other array will look like this:
                 // other = [2] because formerOccurrences.length = presentOccurrences.length = 1
                 const other = inserted.length > 0 ? presentOccurrences : formerOccurrences;
 
@@ -372,7 +371,7 @@ export class ChangeChecker {
         lookupEntry.diff.$isChanged = lookupEntry.diff.$inserted.length > 0 || lookupEntry.diff.$deleted.length > 0;
     }
 
-    // This method builds a lookup where for every objectid the corresponding former and present object is stored for fast lookups later.
+    // This method builds a lookup where for every objectId the corresponding former and present object is stored for fast lookups later.
     private buildLookupTree(formerObject: any, presentObject: any): Map<any, IObjectLookupEntry> {
         // First we build a lookup tree for the former object.
         let result = this.buildFormerLookupTree(formerObject, this.globalLookup);
@@ -394,7 +393,7 @@ export class ChangeChecker {
             );
         }
 
-        // Then we extend the lookup entries with the present object with the same objectid as the former object or create a new entry if there is no former object for a present object.
+        // Then we extend the lookup entries with the present object with the same objectId as the former object or create a new entry if there is no former object for a present object.
         result = this.buildPresentLookupTree(presentObject, this.globalLookup);
         if (result?.hasConflict) {
             const conflictingObjectRightPath = result.conflictingObjectRightPath.reverse();
@@ -445,7 +444,7 @@ export class ChangeChecker {
                 formerObject: formerArray,
                 presentObject: null,
                 propertyKeys: new Set(),
-                // We create the diff instances in advance so we don't need to care about in what order the objects are traversed later.
+                // We create the diff instances in advance so we don't need to care about in what order the objects are traversed later (because the diff object can be resolved at any time regardless of the object for the diff has been processed already).
                 diff: new ArrayDiffImpl(this.isDirtyArrow, this.unwrapArrow)
             };
 
@@ -529,7 +528,7 @@ export class ChangeChecker {
                     };
                 }
 
-                // if the object is already set, it must have already been processed and we can stop here (circular reference protection)
+                // If the object is already set, it must have already been processed and we can stop here (circular reference protection).
                 return;
             }
 
@@ -596,7 +595,7 @@ export class ChangeChecker {
                     };
                 }
 
-                // if the object is already set, it must have already been processed and we can stop here (circular reference protection)
+                // If the object is already set, it must have already been processed and we can stop here (circular reference protection).
                 return;
             }
 
@@ -615,7 +614,7 @@ export class ChangeChecker {
     }
 
     private buildPresentObjectLookupTree(presentObject: any, globalLookup: Map<any, IObjectLookupEntry>): ILookupBuilderConflictResult | undefined {
-        // not all objects of the present model must have an objectId (newly created objects) so we can use the object itself as fallback key for the lookup
+        // Not all objects of the present model must have an objectId (newly created objects) so we can use the object itself as fallback key for the lookup.
         const lookupKey = (presentObject as any)[objectIdSymbol] || presentObject;
 
         let lookupEntry: IObjectLookupEntry | undefined = globalLookup.get(lookupKey);
@@ -654,7 +653,7 @@ export class ChangeChecker {
                     };
                 }
 
-                // if the object is already set, it must have already been processed and we can stop here (circular reference protection)
+                // If the object is already set, it must have already been processed and we can stop here (circular reference protection).
                 return;
             }
 
@@ -934,7 +933,7 @@ export class ChangeChecker {
     }
 
     // Given a value and the lookup this function either returns the value (string, number, boolean, null, undefined etc.), the value like (Date, RegExp, etc.)
-    // or the diff if the value is an object with an objectId or the value itself if it is an object without an objectId (This is the case if the object exists only in the present model).
+    // or the diff if the value is an object with an objectId or the object itself is the key to find the diff (this is the case if the object exists only in the present model).
     private resolveValueOrDiff(valueOrReference: any, lookup: Map<string, IObjectLookupEntry>): any {
         if (typeof valueOrReference === "object") {
             if (valueOrReference === null) {
@@ -948,13 +947,13 @@ export class ChangeChecker {
 
             const entry = lookup.get(valueOrReference);
             if (entry !== undefined) {
-                // in this case we used the present object as lookup key (see: buildPresentObjectLookupTree)
+                // In this case we used the present object as lookup key (see: buildPresentObjectLookupTree).
                 return entry.diff;
             }
 
             const plugin = this.valueLikePlugins.find((x) => x.isMatch(valueOrReference));
             if (plugin) {
-                // because some "value likes" (like Date) can be changed by methods (e.g. setDate) we need to copy here
+                // Because some "value likes" (like Date) can be changed by methods (e.g. setDate) we need to copy here.
                 return plugin.clone!({ clone: <T>(x: T) => this.clone(x, new Map()) }, valueOrReference);
             }
         }
@@ -1202,7 +1201,7 @@ export class ChangeChecker {
         return this.isObject(node) && this.valueLikePlugins.some((x) => x.isMatch(node));
     }
 
-    // This is a helper function to determine if a value is a reference to another object with an objectId.
+    // This is a helper function to determine if a value is a reference to an object with an objectId.
     private isReference(node: any): node is { [objectIdSymbol]: string; } {
         return this.isObject(node) && node[objectIdSymbol] !== undefined;
     }
@@ -1340,7 +1339,7 @@ class PropertyDiffImpl {
     }
 }
 
-// We use symbols for all internal properties to avoid name collisions with user properties and fast access.
+// We use symbols for all internal properties to avoid name collisions with user properties and faster access.
 const $isCreatedSymbol: unique symbol = Symbol.for("internalIsCreatedSymbol");
 const $isDeletedSymbol: unique symbol = Symbol.for("internalIsDeletedSymbol");
 const $isChangedSymbol: unique symbol = Symbol.for("internalIsChangedSymbol");
